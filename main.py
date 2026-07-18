@@ -59,6 +59,46 @@ PENDING_TRAIT_ROLLS = {}
 WEAPON_EMOJI = "Weapon"
 ARMOR_EMOJI = "Armor"
 
+WEAPON_RANK_EMOJI = {
+    "F":  "<:w_F:1528143134490628227>",
+    "E":  "<:w_E:1528143137648804001>",
+    "D-": "<:w_Dm:1528143140714840128>",
+    "D":  "<:w_D:1528143144083001509>",
+    "D+": "<:w_Dp:1528143147140513932>",
+    "C-": "<:w_Cm:1528143150395166930>",
+    "C":  "<:w_C:1528143153356472422>",
+    "C+": "<:w_Cp:1528143156263260212>",
+    "B-": "<:w_Bm:1528143160058974348>",
+    "B":  "<:w_B:1528143162869157909>",
+    "B+": "<:w_Bp:1528143166451089418>",
+    "A-": "<:w_Am:1528143169361805454>",
+}
+
+ARMOR_RANK_EMOJI = {
+    "F":  "<:a_F:1528143173082284132>",
+    "E":  "<:a_E:1528143175829553273>",
+    "D-": "<:a_Dm:1528143179143184456>",
+    "D":  "<:a_D:1528143182741901506>",
+    "D+": "<:a_Dp:1528143186566840621>",
+    "C-": "<:a_Cm:1528143191013064797>",
+    "C":  "<:a_C:1528143194880213062>",
+    "C+": "<:a_Cp:1528143198063427745>",
+    "B-": "<:a_Bm:1528143201263816884>",
+    "B":  "<:a_B:1528143204619128952>",
+    "B+": "<:a_Bp:1528143208247202003>",
+    "A-": "<:a_Am:1528143211455844566>",
+}
+
+
+def get_item_icon(item):
+    rank = item.get("rank", "")
+    item_type = item.get("type", "")
+    if item_type == "weapon":
+        return WEAPON_RANK_EMOJI.get(rank, "")
+    elif item_type == "armor":
+        return ARMOR_RANK_EMOJI.get(rank, "")
+    return ""
+
 # Commands that do NOT require a character to be created yet
 NO_CHARACTER_COMMANDS = {"create", "ping", "help"}
 
@@ -128,7 +168,7 @@ def get_selected_starter_names(player):
 
 
 def get_inventory_emoji_label(item):
-    return f"{get_item_emoji(item)} {item['name']} [{item['rank']}]"
+    return f"{get_item_icon(item)} {item['name']} [{item['rank']}]"
 
 
 def find_trait_by_name(trait_name):
@@ -311,7 +351,7 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {item['name']} [{item['rank']}] — {stats_text}")
+        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
 
     embed = discord.Embed(
         title="Loadout — Equipment Selection",
@@ -1066,7 +1106,7 @@ async def starter_inventory(ctx):
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_emoji(item)} {item['name']} [{item['rank']}] - {stats_text}")
+        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
 
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
@@ -1111,7 +1151,7 @@ async def inventory_view(ctx):
     lines = []
     for index, item in enumerate(gear_inventory, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {item['name']} [{item['rank']}] — {stats_text}")
+        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
 
     embed = discord.Embed(title="Armory", color=THEME_DARK)
     items_text = "\n".join(lines)
@@ -1350,10 +1390,12 @@ async def player_profile(ctx):
     armor_stats = ""
 
     if equipped_weapon:
-        weapon_name = f"{equipped_weapon.get('rank')} {equipped_weapon.get('name')}"
+        weapon_icon = WEAPON_RANK_EMOJI.get(equipped_weapon.get('rank', ''), '')
+        weapon_name = f"{weapon_icon} {equipped_weapon.get('rank')} {equipped_weapon.get('name')}"
         weapon_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_weapon.get("stats", {}).items())
     if equipped_armor:
-        armor_name = f"{equipped_armor.get('rank')} {equipped_armor.get('name')}"
+        armor_icon = ARMOR_RANK_EMOJI.get(equipped_armor.get('rank', ''), '')
+        armor_name = f"{armor_icon} {equipped_armor.get('rank')} {equipped_armor.get('name')}"
         armor_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_armor.get("stats", {}).items())
 
     embed.add_field(name="Weapon", value=f"{weapon_name}{weapon_stats}", inline=True)
