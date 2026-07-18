@@ -60,33 +60,33 @@ WEAPON_EMOJI = "Weapon"
 ARMOR_EMOJI = "Armor"
 
 WEAPON_RANK_EMOJI = {
-    "F":  "<:w_F:1528143134490628227>",
-    "E":  "<:w_E:1528143137648804001>",
-    "D-": "<:w_Dm:1528143140714840128>",
-    "D":  "<:w_D:1528143144083001509>",
-    "D+": "<:w_Dp:1528143147140513932>",
-    "C-": "<:w_Cm:1528143150395166930>",
-    "C":  "<:w_C:1528143153356472422>",
-    "C+": "<:w_Cp:1528143156263260212>",
-    "B-": "<:w_Bm:1528143160058974348>",
-    "B":  "<:w_B:1528143162869157909>",
-    "B+": "<:w_Bp:1528143166451089418>",
-    "A-": "<:w_Am:1528143169361805454>",
+    "F":  "<:w_F:1528145287246512128>",
+    "E":  "<:w_E:1528145290308092017>",
+    "D-": "<:w_Dm:1528145293856473119>",
+    "D":  "<:w_D:1528145297140617307>",
+    "D+": "<:w_Dp:1528145300747718818>",
+    "C-": "<:w_Cm:1528145304195694612>",
+    "C":  "<:w_C:1528145307404337345>",
+    "C+": "<:w_Cp:1528145319949369524>",
+    "B-": "<:w_Bm:1528145322763747362>",
+    "B":  "<:w_B:1528145326417117194>",
+    "B+": "<:w_Bp:1528145329600462868>",
+    "A-": "<:w_Am:1528145332859441222>",
 }
 
 ARMOR_RANK_EMOJI = {
-    "F":  "<:a_F:1528143173082284132>",
-    "E":  "<:a_E:1528143175829553273>",
-    "D-": "<:a_Dm:1528143179143184456>",
-    "D":  "<:a_D:1528143182741901506>",
-    "D+": "<:a_Dp:1528143186566840621>",
-    "C-": "<:a_Cm:1528143191013064797>",
-    "C":  "<:a_C:1528143194880213062>",
-    "C+": "<:a_Cp:1528143198063427745>",
-    "B-": "<:a_Bm:1528143201263816884>",
-    "B":  "<:a_B:1528143204619128952>",
-    "B+": "<:a_Bp:1528143208247202003>",
-    "A-": "<:a_Am:1528143211455844566>",
+    "F":  "<:a_F:1528145336877453354>",
+    "E":  "<:a_E:1528145340635549818>",
+    "D-": "<:a_Dm:1528145343953371236>",
+    "D":  "<:a_D:1528145347044704348>",
+    "D+": "<:a_Dp:1528145350156746932>",
+    "C-": "<:a_Cm:1528145352933376104>",
+    "C":  "<:a_C:1528145356783620156>",
+    "C+": "<:a_Cp:1528145360080474176>",
+    "B-": "<:a_Bm:1528145363129864343>",
+    "B":  "<:a_B:1528145366413738155>",
+    "B+": "<:a_Bp:1528145369480040558>",
+    "A-": "<:a_Am:1528145373116366849>",
 }
 
 
@@ -351,7 +351,7 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
+        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
 
     embed = discord.Embed(
         title="Loadout — Equipment Selection",
@@ -1106,7 +1106,7 @@ async def starter_inventory(ctx):
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
+        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
 
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
@@ -1151,7 +1151,7 @@ async def inventory_view(ctx):
     lines = []
     for index, item in enumerate(gear_inventory, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_icon(item)} {item['name']} [{item['rank']}] — {stats_text}")
+        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
 
     embed = discord.Embed(title="Armory", color=THEME_DARK)
     items_text = "\n".join(lines)

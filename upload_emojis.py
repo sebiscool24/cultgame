@@ -1,7 +1,5 @@
 """
-One-time script: cuts sprites from sheets and uploads them as Discord custom emojis.
-Weapons1 sheet: 10 cols x 6 rows (swords/daggers/staves), 1600x900
-Armor sheet: 9 cols x 6 rows, 1600x900
+Re-upload script: removes blue background, auto-centers each sprite, re-uploads.
 """
 
 import asyncio
@@ -9,12 +7,12 @@ import io
 import os
 import discord
 from PIL import Image
+import numpy as np
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 if not TOKEN:
     raise RuntimeError("Set DISCORD_TOKEN environment variable first.")
 
-# Grid config - measured from sprite sheets (title bar ~80px at top)
 SHEET_CONFIGS = {
     "weapons1": {
         "file": "assets/weapons1.webp",
@@ -30,48 +28,75 @@ SHEET_CONFIGS = {
     },
 }
 
-# Pick one sprite per weapon rank (sheet "weapons1", row, col) - 0-indexed
 WEAPON_RANK_SPRITES = {
-    "F":  ("weapons1", 0, 0),   # simple gray dagger
-    "E":  ("weapons1", 0, 1),   # gold dagger
-    "D-": ("weapons1", 0, 2),   # plain short sword
-    "D":  ("weapons1", 0, 3),   # dark short sword
-    "D+": ("weapons1", 0, 4),   # white sword
-    "C-": ("weapons1", 0, 5),   # brown sword
-    "C":  ("weapons1", 1, 0),   # curved sword
-    "C+": ("weapons1", 1, 1),   # larger curved blade
-    "B-": ("weapons1", 1, 3),   # thin elegant sword
-    "B":  ("weapons1", 2, 0),   # large blade
-    "B+": ("weapons1", 2, 3),   # red glowing sword
-    "A-": ("weapons1", 2, 4),   # crystal blue sword
+    "F":  ("weapons1", 0, 0),
+    "E":  ("weapons1", 0, 1),
+    "D-": ("weapons1", 0, 2),
+    "D":  ("weapons1", 0, 3),
+    "D+": ("weapons1", 0, 4),
+    "C-": ("weapons1", 0, 5),
+    "C":  ("weapons1", 1, 0),
+    "C+": ("weapons1", 1, 1),
+    "B-": ("weapons1", 1, 3),
+    "B":  ("weapons1", 2, 0),
+    "B+": ("weapons1", 2, 3),
+    "A-": ("weapons1", 2, 4),
 }
 
-# Pick one sprite per armor rank (sheet "armor", row, col) - 0-indexed
 ARMOR_RANK_SPRITES = {
-    "F":  ("armor", 0, 0),   # plain gray vest
-    "E":  ("armor", 0, 1),   # dark shirt
-    "D-": ("armor", 0, 2),   # gray shirt
-    "D":  ("armor", 0, 3),   # green shirt
-    "D+": ("armor", 0, 4),   # purple shirt
-    "C-": ("armor", 1, 0),   # fur shoulder
-    "C":  ("armor", 1, 5),   # tan vest
-    "C+": ("armor", 1, 6),   # plated vest
-    "B-": ("armor", 2, 1),   # green robe
-    "B":  ("armor", 2, 2),   # blue robe
-    "B+": ("armor", 2, 5),   # blue plate
-    "A-": ("armor", 4, 6),   # armored chest
+    "F":  ("armor", 0, 0),
+    "E":  ("armor", 0, 1),
+    "D-": ("armor", 0, 2),
+    "D":  ("armor", 0, 3),
+    "D+": ("armor", 0, 4),
+    "C-": ("armor", 1, 0),
+    "C":  ("armor", 1, 5),
+    "C+": ("armor", 1, 6),
+    "B-": ("armor", 2, 1),
+    "B":  ("armor", 2, 2),
+    "B+": ("armor", 2, 5),
+    "A-": ("armor", 4, 6),
 }
+
+
+def remove_background(img):
+    """Remove the blue background and replace with transparency."""
+    img = img.convert("RGBA")
+    data = np.array(img)
+    r, g, b, a = data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3]
+    # Blue background is roughly R<160, G>160, B>200
+    bg_mask = (r < 170) & (g > 160) & (b > 180) & (b > r + 30)
+    data[bg_mask] = [0, 0, 0, 0]
+    return Image.fromarray(data)
 
 
 def cut_sprite(sheet_name, row, col):
     cfg = SHEET_CONFIGS[sheet_name]
     img = Image.open(cfg["file"]).convert("RGBA")
+
     x = cfg["start_x"] + col * cfg["cell_w"]
     y = cfg["start_y"] + row * cfg["cell_h"]
     sprite = img.crop((x, y, x + cfg["cell_w"], y + cfg["cell_h"]))
-    sprite = sprite.resize((64, 64), Image.LANCZOS)
+
+    # Remove blue background
+    sprite = remove_background(sprite)
+
+    # Auto-crop to content bounding box, then pad to square
+    bbox = sprite.getbbox()
+    if bbox:
+        sprite = sprite.crop(bbox)
+
+    # Pad to square with transparent border
+    max_dim = max(sprite.width, sprite.height)
+    padded = Image.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+    offset_x = (max_dim - sprite.width) // 2
+    offset_y = (max_dim - sprite.height) // 2
+    padded.paste(sprite, (offset_x, offset_y))
+
+    padded = padded.resize((64, 64), Image.LANCZOS)
+
     buf = io.BytesIO()
-    sprite.save(buf, format="PNG")
+    padded.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
 
@@ -84,11 +109,27 @@ async def main():
     async def on_ready():
         print(f"Logged in as {client.user}")
         guild = client.guilds[0]
-        print(f"Uploading to: {guild.name} ({guild.id})")
+        print(f"Uploading to: {guild.name}")
 
+        # Delete old emojis first
+        old_names = set()
+        for rank in WEAPON_RANK_SPRITES:
+            old_names.add(f"w_{rank.replace('-','m').replace('+','p')}")
+        for rank in ARMOR_RANK_SPRITES:
+            old_names.add(f"a_{rank.replace('-','m').replace('+','p')}")
+
+        for emoji in guild.emojis:
+            if emoji.name in old_names:
+                await emoji.delete()
+                print(f"  Deleted old: {emoji.name}")
+                await asyncio.sleep(0.3)
+
+        # Upload new clean sprites
         uploaded = {}
-        all_sprites = {**{f"w_{k.replace('-','m').replace('+','p')}": v for k, v in WEAPON_RANK_SPRITES.items()},
-                       **{f"a_{k.replace('-','m').replace('+','p')}": v for k, v in ARMOR_RANK_SPRITES.items()}}
+        all_sprites = {
+            **{f"w_{k.replace('-','m').replace('+','p')}": v for k, v in WEAPON_RANK_SPRITES.items()},
+            **{f"a_{k.replace('-','m').replace('+','p')}": v for k, v in ARMOR_RANK_SPRITES.items()}
+        }
 
         for emoji_name, (sheet, row, col) in all_sprites.items():
             try:
@@ -100,19 +141,7 @@ async def main():
             except Exception as e:
                 print(f"  FAILED {emoji_name}: {e}")
 
-        print("\n--- DONE ---")
-        print("Weapon emoji map:")
-        for rank, (sheet, row, col) in WEAPON_RANK_SPRITES.items():
-            name = f"w_{rank.replace('-','m').replace('+','p')}"
-            if name in uploaded:
-                print(f'    "{rank}": "{uploaded[name]}",')
-
-        print("\nArmor emoji map:")
-        for rank, (sheet, row, col) in ARMOR_RANK_SPRITES.items():
-            name = f"a_{rank.replace('-','m').replace('+','p')}"
-            if name in uploaded:
-                print(f'    "{rank}": "{uploaded[name]}",')
-
+        print("\nDone! All icons re-uploaded with transparent backgrounds.")
         await client.close()
 
     await client.start(TOKEN)
