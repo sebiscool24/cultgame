@@ -86,6 +86,8 @@ TRAIT_BONUSES = {
 def create_gear_item(rank: str, item_type: str) -> Dict:
     """Generate a random gear item with stats based on rank."""
     rank_config = GEAR_RANK_STATS.get(rank, GEAR_RANK_STATS["F"])
+    weapon_names = ["Spirit Fang", "Mooncleaver", "Rift Spear", "Ashen Saber", "Omen Blade"]
+    armor_names = ["Warding Robe", "Iron Sutra Mail", "Veil Mantle", "Rootguard Plate", "Astral Hauberk"]
     
     base_damage = random.randint(rank_config["min"], rank_config["max"])
     luck = random.randint(*rank_config["luck"])
@@ -96,11 +98,14 @@ def create_gear_item(rank: str, item_type: str) -> Dict:
     defense = armor // 2 + random.randint(0, 5)
     
     item_id = f"{item_type}_{rank}_{random.randint(1000, 9999)}"
+    base_name = random.choice(weapon_names if item_type == "weapon" else armor_names)
     
     return {
         "id": item_id,
+        "name": f"{rank}-Rank {base_name}",
         "type": item_type,  # "weapon" or "armor"
         "rank": rank,
+        "description": "A battle-won artifact carrying fresh spiritual pressure.",
         "stats": {
             "damage": base_damage,
             "defense": defense,
@@ -153,22 +158,47 @@ def calculate_total_stats(
 
 def calculate_combat_stats(total_stats: Dict[str, int]) -> Dict[str, any]:
     """Calculate derived combat stats from total stats."""
+    authority = total_stats.get("sequence_authority_percent", 0)
+    concealment = total_stats.get("concealment_percent", 0)
     return {
         "health": total_stats.get("hp", 50) + total_stats.get("armor", 0) * 2,
-        "attack": total_stats.get("damage", 0),
+        "attack": int(total_stats.get("damage", 0) * (1 + authority / 100)),
         "defense": total_stats.get("defense", 0),
         "crit_chance": min(
-            50, 10 + total_stats.get("luck", 0) // 5
+            80,
+            10
+            + total_stats.get("luck", 0) // 5
+            + total_stats.get("critical_chance_percent", 0)
+            + total_stats.get("omen_chance_percent", 0) // 2,
         ),  # 10% base + luck bonus, max 50%
-        "dodge_chance": min(30, 5 + total_stats.get("speed", 0) // 10),  # 5% base + speed
+        "dodge_chance": min(
+            60,
+            5
+            + total_stats.get("speed", 0) // 10
+            + total_stats.get("dodge_chance_percent", 0)
+            + concealment // 2,
+        ),
         "speed": total_stats.get("speed", 0),
+        "damage_reduction_percent": min(70, total_stats.get("damage_reduction_percent", 0)),
+        "lifesteal_percent": min(40, total_stats.get("lifesteal_percent", 0)),
+        "counter_chance_percent": min(50, total_stats.get("counter_chance_percent", 0)),
+        "omen_chance_percent": min(50, total_stats.get("omen_chance_percent", 0)),
+        "madness_resistance_percent": total_stats.get("madness_resistance_percent", 0),
     }
+
+
+def format_hp_bar(current_hp: int, max_hp: int, width: int = 12) -> str:
+    """Render a compact Discord-friendly HP bar."""
+    max_hp = max(1, max_hp)
+    current_hp = max(0, min(current_hp, max_hp))
+    filled = round((current_hp / max_hp) * width)
+    return f"[{'#' * filled}{'-' * (width - filled)}] {current_hp}/{max_hp}"
 
 
 def simulate_combat_round(
     player_stats: Dict[str, any],
     enemy_stats: Dict[str, any],
-) -> Tuple[int, int, List[str]]:
+) -> Tuple[int, int, int, List[str]]:
     """
     Simulate one combat round.
     Returns: (player_damage, enemy_damage, combat_log)
@@ -176,30 +206,56 @@ def simulate_combat_round(
     log = []
     player_damage = 0
     enemy_damage = 0
+    healing = 0
 
-    # Player attacks
+    # Player turn
+    log.append("**Your Turn**")
     if random.random() * 100 > enemy_stats["dodge_chance"]:
-        player_damage = player_stats["attack"]
+        blocked = max(0, enemy_stats.get("defense", 0) // 2)
+        player_damage = max(1, player_stats["attack"] - blocked)
         if random.random() * 100 < player_stats["crit_chance"]:
             player_damage = int(player_damage * 1.5)
-            log.append(f"⚡ Critical Hit! **{player_damage}** damage!")
+            log.append(f"You strike. Enemy DEF blocks **{blocked}**. Critical hit for **{player_damage}** damage.")
         else:
-            log.append(f"⚔️ Dealt **{player_damage}** damage")
-    else:
-        log.append("🛡️ Enemy dodged!")
+            log.append(f"You strike. Enemy DEF blocks **{blocked}**. Dealt **{player_damage}** damage.")
 
-    # Enemy attacks
+        if random.random() * 100 < player_stats.get("omen_chance_percent", 0):
+            omen_damage = max(1, player_stats["attack"] // 2)
+            player_damage += omen_damage
+            log.append(f"Omen fulfilled: **+{omen_damage}** unavoidable damage.")
+
+        if player_stats.get("lifesteal_percent", 0):
+            healing = int(player_damage * player_stats["lifesteal_percent"] / 100)
+            if healing > 0:
+                log.append(f"Lifesteal restores **{healing}** HP.")
+    else:
+        log.append("The enemy dodges your attack.")
+
+    # Enemy turn
+    log.append("**Enemy Turn**")
     if random.random() * 100 > player_stats["dodge_chance"]:
-        enemy_damage = enemy_stats["attack"]
+        blocked = max(0, player_stats.get("defense", 0) // 2)
+        enemy_damage = max(1, enemy_stats["attack"] - blocked)
         if random.random() * 100 < enemy_stats["crit_chance"]:
             enemy_damage = int(enemy_damage * 1.5)
-            log.append(f"💢 Enemy critical! **{enemy_damage}** damage taken!")
+            log.append(f"Enemy attacks. Your DEF blocks **{blocked}**. Critical hit for **{enemy_damage}** damage.")
         else:
-            log.append(f"💫 Enemy dealt **{enemy_damage}** damage")
-    else:
-        log.append("✨ Dodged enemy attack!")
+            log.append(f"Enemy attacks. Your DEF blocks **{blocked}**. You take **{enemy_damage}** damage.")
 
-    return player_damage, enemy_damage, log
+        reduction = player_stats.get("damage_reduction_percent", 0)
+        if reduction:
+            reduced_by = int(enemy_damage * reduction / 100)
+            enemy_damage -= reduced_by
+            log.append(f"Damage reduction prevents **{reduced_by}** damage.")
+
+        if random.random() * 100 < player_stats.get("counter_chance_percent", 0):
+            counter_damage = max(1, player_stats["attack"] // 2)
+            player_damage += counter_damage
+            log.append(f"Countered through fate for **{counter_damage}** damage.")
+    else:
+        log.append("You dodge the enemy attack.")
+
+    return player_damage, enemy_damage, healing, log
 
 
 def battle(
@@ -233,18 +289,21 @@ def battle(
 
     while player_health > 0 and enemy_health > 0 and round_count < 20:
         round_count += 1
-        log_entries.append(f"\n**Round {round_count}:**")
+        log_entries.append(f"**Round {round_count}**")
 
-        player_dmg, enemy_dmg, round_log = simulate_combat_round(
+        player_dmg, enemy_dmg, healing, round_log = simulate_combat_round(
             player_combat, enemy_stats
         )
 
         for entry in round_log:
             log_entries.append(entry)
 
-        player_health -= enemy_dmg
+        player_health = min(player_combat["health"], player_health - enemy_dmg + healing)
         enemy_health -= player_dmg
-        log_entries.append(f"HP: **{max(0, player_health)}** / Enemy: **{max(0, enemy_health)}**")
+        player_bar = format_hp_bar(player_health, player_combat["health"])
+        enemy_bar = format_hp_bar(enemy_health, enemy_stats["health"])
+        log_entries.append(f"Your HP `{player_bar}`")
+        log_entries.append(f"Enemy HP `{enemy_bar}`")
 
     # Determine winner
     won = player_health > 0
@@ -261,7 +320,7 @@ def battle(
         # 70% chance for loot on normal, 85% on raid
         loot_chance = 0.7 if difficulty == "normal" else 0.85
         loot = (
-            create_gear_item(random.choice(["D", "C", "B"]), "weapon")
+            create_gear_item(random.choice(["D", "C", "B"]), random.choice(["weapon", "armor"]))
             if random.random() < loot_chance
             else None
         )

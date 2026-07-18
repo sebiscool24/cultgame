@@ -149,6 +149,12 @@ TRAITS = [
     {"id": "godworthy_08", "name": "Heaven's Mandate", "rarity": "Godworthy", "description": "The heavens grant a path unlike any other.", "bonuses": {"unique_ability_later": True, "cultivation_speed_percent": 8}},
     {"id": "godworthy_09", "name": "Eternal Rune", "rarity": "Godworthy", "description": "A rune that changes the meaning of progress.", "bonuses": {"special_mechanic": True, "qi_gain_percent": 8}},
     {"id": "godworthy_10", "name": "Origin Sovereign", "rarity": "Godworthy", "description": "A sovereign trait that changes the future of the cultivator.", "bonuses": {"unique_evolution_path": True, "special_mechanic": True}},
+
+    {"id": "empyrean_01", "name": "Empyrean Door", "rarity": "Empyrean", "description": "A sealed authority that opens impossible roads without breaking the path.", "bonuses": {"unique_evolution_path": True, "attack_percent": 18, "qi_gain_percent": 14, "luck_percent": 10, "dodge_chance_percent": 6, "fate_anchor_percent": 10}},
+    {"id": "empyrean_02", "name": "Pale Monarch's Error", "rarity": "Empyrean", "description": "A forbidden correction in fate that turns mistakes into narrow advantages.", "bonuses": {"special_mechanic": True, "defense_percent": 16, "luck_percent": 12, "counter_chance_percent": 8, "omen_chance_percent": 10, "madness_resistance_percent": 15}},
+    {"id": "empyrean_03", "name": "Crown Above Sequence", "rarity": "Empyrean", "description": "A crown that bends pressure into command, useful but still earned by battle.", "bonuses": {"unique_ability_later": True, "attack_percent": 16, "defense_percent": 14, "sequence_authority_percent": 12, "damage_reduction_percent": 8, "critical_chance_percent": 7}},
+    {"id": "empyrean_04", "name": "Veiled Star Archive", "rarity": "Empyrean", "description": "An archive of hidden stars that sharpens growth, luck, and survival instincts.", "bonuses": {"extra_breakthrough_reward": True, "qi_gain_percent": 18, "cultivation_speed_percent": 12, "loot_luck_percent": 12, "concealment_percent": 8, "hp_percent": 12}},
+    {"id": "empyrean_05", "name": "Origin Mythos", "rarity": "Empyrean", "description": "A mythic origin that remembers victory before the first strike lands.", "bonuses": {"unique_evolution_path": True, "special_mechanic": True, "attack_percent": 14, "defense_percent": 14, "lifesteal_percent": 7, "fate_anchor_percent": 12, "breakthrough_reward_bonus_percent": 12}},
 ]
 
 
@@ -161,6 +167,7 @@ RARITY_ICON_TIER = {
     "Legendary": 5,
     "Celestial": 5,
     "Godworthy": 5,
+    "Empyrean": 5,
 }
 
 RARITY_ICON_OFFSET = {
@@ -168,7 +175,163 @@ RARITY_ICON_OFFSET = {
     "Legendary": 4,
     "Celestial": 8,
     "Godworthy": 10,
+    "Empyrean": 15,
 }
+
+RARITY_POWER_PACKS = {
+    "Common": {
+        "attack_percent": 1,
+        "qi_gain_percent": 1,
+    },
+    "Uncommon": {
+        "attack_percent": 2,
+        "qi_gain_percent": 2,
+        "luck_percent": 1,
+    },
+    "Normal": {
+        "attack_percent": 3,
+        "qi_gain_percent": 3,
+        "defense_percent": 2,
+        "luck_percent": 2,
+    },
+    "Great": {
+        "attack_percent": 5,
+        "qi_gain_percent": 5,
+        "defense_percent": 4,
+        "luck_percent": 3,
+        "loot_luck_percent": 4,
+    },
+    "Amazing": {
+        "attack_percent": 8,
+        "qi_gain_percent": 8,
+        "defense_percent": 6,
+        "luck_percent": 5,
+        "omen_chance_percent": 4,
+        "loot_luck_percent": 6,
+    },
+    "Legendary": {
+        "attack_percent": 12,
+        "qi_gain_percent": 11,
+        "defense_percent": 9,
+        "luck_percent": 7,
+        "omen_chance_percent": 7,
+        "sequence_authority_percent": 5,
+        "damage_reduction_percent": 4,
+    },
+    "Celestial": {
+        "attack_percent": 17,
+        "qi_gain_percent": 16,
+        "defense_percent": 13,
+        "luck_percent": 10,
+        "omen_chance_percent": 10,
+        "sequence_authority_percent": 9,
+        "damage_reduction_percent": 7,
+        "fate_anchor_percent": 8,
+    },
+    "Godworthy": {
+        "attack_percent": 25,
+        "qi_gain_percent": 24,
+        "defense_percent": 20,
+        "luck_percent": 15,
+        "critical_chance_percent": 10,
+        "dodge_chance_percent": 8,
+        "omen_chance_percent": 15,
+        "sequence_authority_percent": 14,
+        "damage_reduction_percent": 10,
+        "lifesteal_percent": 8,
+        "counter_chance_percent": 8,
+        "fate_anchor_percent": 15,
+        "madness_resistance_percent": 20,
+        "breakthrough_reward_bonus_percent": 18,
+    },
+    "Empyrean": {
+        "attack_percent": 32,
+        "qi_gain_percent": 30,
+        "defense_percent": 26,
+        "luck_percent": 20,
+        "critical_chance_percent": 12,
+        "dodge_chance_percent": 10,
+        "omen_chance_percent": 18,
+        "sequence_authority_percent": 16,
+        "damage_reduction_percent": 12,
+        "lifesteal_percent": 10,
+        "counter_chance_percent": 10,
+        "fate_anchor_percent": 18,
+        "madness_resistance_percent": 24,
+        "breakthrough_reward_bonus_percent": 20,
+        "loot_luck_percent": 14,
+    },
+}
+
+THEME_POWER_PACKS = (
+    (("shadow", "veil", "night", "void", "abyss", "eclipse"), {"concealment_percent": 5, "dodge_chance_percent": 3}),
+    (("mirror", "prism", "thread", "rune", "scribe", "key"), {"omen_chance_percent": 4, "luck_percent": 3}),
+    (("sovereign", "throne", "crown", "mandate", "authority", "verdict"), {"sequence_authority_percent": 5, "attack_percent": 3}),
+    (("root", "stone", "world", "anvil", "warden", "iron"), {"damage_reduction_percent": 4, "defense_percent": 3}),
+    (("heart", "pulse", "blood", "maw", "furnace", "seed"), {"lifesteal_percent": 3, "hp_percent": 4}),
+    (("star", "heaven", "astral", "celestial", "destiny", "origin"), {"fate_anchor_percent": 5, "qi_gain_percent": 4}),
+    (("storm", "thunder", "comet", "flame", "ember", "solar", "sun"), {"critical_chance_percent": 4, "attack_percent": 4}),
+    (("moon", "mist", "river", "tide", "ocean", "frost"), {"counter_chance_percent": 3, "defense_percent": 3}),
+)
+
+
+def _merge_bonuses(*bonus_sets):
+    merged = {}
+    for bonus_set in bonus_sets:
+        for key, value in bonus_set.items():
+            if isinstance(value, bool):
+                merged[key] = merged.get(key, False) or value
+            elif isinstance(value, (int, float)):
+                merged[key] = merged.get(key, 0) + value
+            else:
+                merged[key] = value
+    return merged
+
+
+def _scale_bonus_pack(pack, rarity):
+    if rarity in {"Common", "Uncommon", "Normal"}:
+        scale = 0.35
+    elif rarity == "Great":
+        scale = 0.6
+    elif rarity == "Amazing":
+        scale = 0.85
+    elif rarity == "Legendary":
+        scale = 1.15
+    elif rarity == "Celestial":
+        scale = 1.45
+    elif rarity == "Godworthy":
+        scale = 1.9
+    else:
+        scale = 2.25
+
+    return {
+        key: max(1, int(value * scale))
+        for key, value in pack.items()
+        if isinstance(value, (int, float))
+    }
+
+
+def _theme_bonus_for_trait(trait):
+    name = trait["name"].lower()
+    rarity = trait["rarity"]
+    themed = {}
+    for keywords, pack in THEME_POWER_PACKS:
+        if any(keyword in name for keyword in keywords):
+            themed = _merge_bonuses(themed, _scale_bonus_pack(pack, rarity))
+    return themed
+
+
+def _augment_trait_powers(traits):
+    augmented = []
+    for trait in traits:
+        rarity = trait["rarity"]
+        bonuses = _merge_bonuses(
+            trait.get("bonuses", {}),
+            RARITY_POWER_PACKS.get(rarity, {}),
+            _theme_bonus_for_trait(trait),
+        )
+        augmented.append(dict(trait, bonuses=bonuses))
+    return augmented
 
 
 def _assign_trait_icons(traits):
@@ -189,7 +352,7 @@ def _assign_trait_icons(traits):
     return assigned
 
 
-TRAITS = _assign_trait_icons(TRAITS)
+TRAITS = _assign_trait_icons(_augment_trait_powers(TRAITS))
 
 RARITY_WEIGHTS = {
     "Common": 45,
@@ -200,6 +363,7 @@ RARITY_WEIGHTS = {
     "Legendary": 2,
     "Celestial": 0.8,
     "Godworthy": 0.2,
+    "Empyrean": 0.03,
 }
 
 

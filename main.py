@@ -15,6 +15,7 @@ from data.game_systems import generate_loot, battle as battle_system, add_xp as 
 from game_db_functions import (
     add_gear_to_inventory,
     get_player_game_data,
+    set_equipped_gear,
     add_wallet_currency,
     get_wallet,
     get_bank_balance,
@@ -140,10 +141,13 @@ def get_trait_icon_file(trait):
     return discord.File(path, filename=path.name)
 
 
-def attach_trait_icon(embed, trait):
+def attach_trait_icon(embed, trait, *, image=True):
     icon_file = get_trait_icon_file(trait)
     if icon_file:
-        embed.set_image(url=f"attachment://{icon_file.filename}")
+        if image:
+            embed.set_image(url=f"attachment://{icon_file.filename}")
+        else:
+            embed.set_thumbnail(url=f"attachment://{icon_file.filename}")
     return icon_file
 
 
@@ -160,11 +164,60 @@ def build_anime_header(title):
     return f"─── {title} ───"
 
 
+def fit_embed_text(text, limit=1000):
+    if len(text) <= limit:
+        return text
+
+    kept_lines = []
+    current_length = len("...\n")
+    for line in reversed(text.splitlines()):
+        added_length = len(line) + 1
+        if current_length + added_length > limit:
+            break
+        kept_lines.insert(0, line)
+        current_length += added_length
+    return "...\n" + "\n".join(kept_lines)
+
+
+TRAIT_BONUS_LABELS = {
+    "attack_percent": "Attack",
+    "damage_percent": "Attack",
+    "qi_gain_percent": "Qi Gain",
+    "defense_percent": "Defense",
+    "hp_percent": "HP",
+    "luck_percent": "Luck",
+    "critical_chance_percent": "Crit Chance",
+    "dodge_chance_percent": "Dodge Chance",
+    "cultivation_speed_percent": "Cultivation Speed",
+    "loot_luck_percent": "Loot Luck",
+    "omen_chance_percent": "Omen Chance",
+    "sequence_authority_percent": "Sequence Authority",
+    "damage_reduction_percent": "Damage Reduction",
+    "lifesteal_percent": "Lifesteal",
+    "counter_chance_percent": "Counter Chance",
+    "fate_anchor_percent": "Fate Anchor",
+    "concealment_percent": "Concealment",
+    "madness_resistance_percent": "Madness Resistance",
+    "breakthrough_reward_bonus_percent": "Breakthrough Reward",
+    "unique_evolution_path": "Unique Evolution Path",
+    "extra_breakthrough_reward": "Extra Breakthrough Reward",
+    "unique_ability_later": "Unique Ability Later",
+    "special_mechanic": "Special Mechanic",
+}
+
+
+def get_trait_bonus_label(key):
+    return TRAIT_BONUS_LABELS.get(key, key.replace("_percent", "").replace("_", " ").title())
+
+
 def format_trait_bonuses(bonuses):
     return ", ".join(
-        f"{key.replace('_', ' ')} +{value}%"
-        if isinstance(value, int)
-        else f"{key.replace('_', ' ')}"
+        f"{get_trait_bonus_label(key)}"
+        if isinstance(value, bool)
+        else
+        f"{get_trait_bonus_label(key)} +{value}%"
+        if isinstance(value, (int, float))
+        else f"{get_trait_bonus_label(key)}"
         for key, value in bonuses.items()
     )
 
@@ -172,23 +225,49 @@ def format_trait_bonuses(bonuses):
 def get_selected_starter_names(player):
     rolled_items = json.loads(player.get("starter_items", "[]"))
     inventory_items = player.get("inventory_items", [])
+    game_data = get_player_game_data(player.get("user_id")) or {}
+    equipped_weapon = game_data.get("equipped_weapon") or {}
+    equipped_armor = game_data.get("equipped_armor") or {}
     weapon_id = player.get("starter_weapon")
     armor_id = player.get("starter_armor")
 
-    weapon_name = "None"
-    armor_name = "None"
+    weapon_name = get_item_display_name(equipped_weapon) if equipped_weapon else "None"
+    armor_name = get_item_display_name(equipped_armor) if equipped_armor else "None"
 
     for item in inventory_items + rolled_items:
         if item.get("id") == weapon_id:
-            weapon_name = item.get("name", "None")
+            weapon_name = get_item_display_name(item)
         if item.get("id") == armor_id:
-            armor_name = item.get("name", "None")
+            armor_name = get_item_display_name(item)
 
     return weapon_name, armor_name
 
 
+def get_item_display_name(item):
+    if not item:
+        return "Unknown Item"
+    if item.get("name"):
+        return item["name"]
+    item_type = item.get("type", "item").title()
+    rank = item.get("rank", "?")
+    short_id = str(item.get("id", "????"))[-4:]
+    return f"{rank}-Rank {item_type} #{short_id}"
+
+
+def get_item_rank(item):
+    return item.get("rank", "?") if item else "?"
+
+
+def get_all_inventory_items(user_id, player=None):
+    player = player or get_player(str(user_id))
+    old_inventory = player.get("inventory_items", []) if player else []
+    game_data = get_player_game_data(str(user_id)) or {}
+    gear_inventory = game_data.get("gear_inventory", []) or []
+    return old_inventory + gear_inventory
+
+
 def get_inventory_emoji_label(item):
-    return f"{get_item_icon(item)} {item['name']} [{item['rank']}]"
+    return f"{get_item_icon(item)} {get_item_display_name(item)} [{get_item_rank(item)}]"
 
 
 def find_trait_by_name(trait_name):
@@ -199,6 +278,13 @@ def find_trait_by_name(trait_name):
         if trait.get("name") == trait_name:
             return trait
     return None
+
+
+def get_player_trait_bonuses(player):
+    trait_entry = find_trait_by_name(player.get("trait_name"))
+    if not trait_entry:
+        return {}, None
+    return trait_entry.get("bonuses", {}), trait_entry
 
 
 def roll_random_trait():
@@ -296,7 +382,7 @@ def get_loadout_items(player):
     starter_candidates = json.loads(player.get("starter_items", "[]"))
     if starter_candidates:
         return starter_candidates, True
-    return player.get("inventory_items", []), False
+    return get_all_inventory_items(player.get("user_id"), player), False
 
 
 def build_starter_roll_message(item, roll_number, rolls_left):
@@ -356,9 +442,9 @@ def build_create_trait_panel_embed(display_name, trait, rolls_left):
 
 def build_create_starter_panel_embed(display_name, item, roll_number, rolls_left):
     status = (
-        "Starter rolls complete. Open Loadout next."
+        "Starter rolls complete. Press Continue to choose your gear."
         if rolls_left <= 0
-        else "Roll again, or return to the main create panel."
+        else "Keep rolling until all starter rolls are used."
     )
     embed = build_starter_roll_embed(item, roll_number, rolls_left, status)
     embed.title = f"Starter Gear - {display_name}"
@@ -370,7 +456,7 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
+        lines.append(f"{get_item_icon(item)} **{get_item_display_name(item)}** [{get_item_rank(item)}]\n└ {stats_text}\n")
 
     embed = discord.Embed(
         title="Loadout",
@@ -400,12 +486,12 @@ class CreateJourneyView(discord.ui.View):
         super().__init__(timeout=900)
         self.author_id = author_id
         self.current_trait = None
-        self.mode = "hub"
+        self.mode = "trait"
         self.current_loadout_items = []
         self.current_starter_finalize = False
         self.selected_weapon_roll = None
         self.selected_armor_roll = None
-        self._set_hub_buttons()
+        self._set_trait_buttons()
 
     async def _ensure_owner(self, interaction: discord.Interaction):
         if interaction.user.id != self.author_id:
@@ -435,9 +521,9 @@ class CreateJourneyView(discord.ui.View):
         reroll_trait_btn.callback = self.roll_trait_button
         self.add_item(reroll_trait_btn)
 
-        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
-        back_btn.callback = self.back_to_hub_button
-        self.add_item(back_btn)
+        continue_btn = discord.ui.Button(label="Continue", style=discord.ButtonStyle.success)
+        continue_btn.callback = self.continue_to_starter_button
+        self.add_item(continue_btn)
 
     def _set_starter_buttons(self):
         self.clear_items()
@@ -446,9 +532,9 @@ class CreateJourneyView(discord.ui.View):
         reroll_starter_btn.callback = self.roll_starter_button
         self.add_item(reroll_starter_btn)
 
-        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
-        back_btn.callback = self.back_to_hub_button
-        self.add_item(back_btn)
+        continue_btn = discord.ui.Button(label="Continue", style=discord.ButtonStyle.success)
+        continue_btn.callback = self.continue_to_loadout_button
+        self.add_item(continue_btn)
 
     def _set_loadout_buttons(self):
         self.clear_items()
@@ -457,7 +543,7 @@ class CreateJourneyView(discord.ui.View):
         armor_options = []
         for index, item in enumerate(self.current_loadout_items, 1):
             option = discord.SelectOption(
-                label=f"#{index} {item['name']} [{item['rank']}]",
+                label=f"#{index} {get_item_display_name(item)} [{get_item_rank(item)}]",
                 value=str(index),
                 description=item.get("type", "unknown").title(),
             )
@@ -486,13 +572,9 @@ class CreateJourneyView(discord.ui.View):
             armor_select.callback = self.select_armor_in_panel
             self.add_item(armor_select)
 
-        confirm_btn = discord.ui.Button(label="Save Loadout", style=discord.ButtonStyle.success)
+        confirm_btn = discord.ui.Button(label="Create", style=discord.ButtonStyle.success)
         confirm_btn.callback = self.confirm_loadout_in_panel
         self.add_item(confirm_btn)
-
-        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
-        back_btn.callback = self.back_to_hub_button
-        self.add_item(back_btn)
 
     async def roll_trait_button(self, interaction: discord.Interaction):
         if not await self._ensure_owner(interaction):
@@ -535,6 +617,45 @@ class CreateJourneyView(discord.ui.View):
             view=self,
         )
 
+    async def continue_to_starter_button(self, interaction: discord.Interaction):
+        if not await self._ensure_owner(interaction):
+            return
+
+        user_id = str(self.author_id)
+        player = get_player(user_id)
+        if player is None:
+            await interaction.response.send_message(
+                embed=build_embed("No Character", "You do not have a character yet. Use !create first.", discord.Color.orange()),
+                ephemeral=True,
+            )
+            return
+
+        if not player.get("trait_name"):
+            await interaction.response.send_message("Roll a trait first.", ephemeral=True)
+            return
+
+        item, roll_number, rolls_left = roll_starter_candidate(user_id)
+        self.mode = "starter"
+        self._set_starter_buttons()
+
+        if item is None:
+            await interaction.response.edit_message(
+                embed=build_embed(
+                    "Starter Gear Complete",
+                    "Starter rolls are complete. Press Continue to choose 1 weapon and 1 armor.",
+                    discord.Color.orange(),
+                ),
+                attachments=[],
+                view=self,
+            )
+            return
+
+        await interaction.response.edit_message(
+            embed=build_create_starter_panel_embed(interaction.user.display_name, item, roll_number, rolls_left),
+            attachments=[],
+            view=self,
+        )
+
     async def roll_starter_button(self, interaction: discord.Interaction):
         if not await self._ensure_owner(interaction):
             return
@@ -554,7 +675,7 @@ class CreateJourneyView(discord.ui.View):
             await interaction.response.edit_message(
                 embed=build_embed(
                     "Starter Gear Complete",
-                    "You have no starter rolls left. Press Back, then Loadout to choose 1 weapon and 1 armor.",
+                    "Starter rolls are complete. Press Continue to choose 1 weapon and 1 armor.",
                     discord.Color.orange(),
                 ),
                 attachments=[],
@@ -569,6 +690,20 @@ class CreateJourneyView(discord.ui.View):
             attachments=[],
             view=self,
         )
+
+    async def continue_to_loadout_button(self, interaction: discord.Interaction):
+        if not await self._ensure_owner(interaction):
+            return
+
+        rolls_left = get_starter_rolls_left(str(self.author_id))
+        if rolls_left > 0:
+            await interaction.response.send_message(
+                f"Use your remaining {rolls_left} starter rolls first.",
+                ephemeral=True,
+            )
+            return
+
+        await self.open_loadout_button(interaction)
 
     async def open_loadout_button(self, interaction: discord.Interaction):
         if not await self._ensure_owner(interaction):
@@ -660,6 +795,7 @@ class CreateJourneyView(discord.ui.View):
             )
 
         choose_starter_items(str(self.author_id), weapon_item.get("id"), armor_item.get("id"))
+        set_equipped_gear(str(self.author_id), weapon_item, armor_item)
 
         self.mode = "hub"
         self.current_loadout_items = []
@@ -669,8 +805,8 @@ class CreateJourneyView(discord.ui.View):
         self._set_hub_buttons()
 
         help_text = (
-            f"{WEAPON_EMOJI} Weapon: {weapon_item.get('name')} [{weapon_item.get('rank')}]\n"
-            f"{ARMOR_EMOJI} Armor: {armor_item.get('name')} [{armor_item.get('rank')}]\n\n"
+            f"{WEAPON_EMOJI} Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            f"{ARMOR_EMOJI} Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]\n\n"
             "**🎯 Next Steps:**\n"
             "• `!profile` - See your total stats & rank\n"
             "• `!cd` - Check action cooldowns\n"
@@ -890,7 +1026,7 @@ class StarterSelectView(discord.ui.View):
 
         for index, item in enumerate(rolled_items, 1):
             option = discord.SelectOption(
-                label=f"#{index} {item['name']} [{item['rank']}]",
+                label=f"#{index} {get_item_display_name(item)} [{get_item_rank(item)}]",
                 value=str(index),
                 description=item.get("type", "unknown").title(),
             )
@@ -978,6 +1114,7 @@ class StarterSelectView(discord.ui.View):
             )
 
         choose_starter_items(str(self.author_id), weapon_item.get("id"), armor_item.get("id"))
+        set_equipped_gear(str(self.author_id), weapon_item, armor_item)
 
         for child in self.children:
             child.disabled = True
@@ -990,8 +1127,8 @@ class StarterSelectView(discord.ui.View):
 
         await interaction.response.edit_message(
             content=loadout_message
-            + f"Weapon: {weapon_item.get('name')} [{weapon_item.get('rank')}]\n"
-            + f"Armor: {armor_item.get('name')} [{armor_item.get('rank')}]",
+            + f"Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            + f"Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]",
             view=self,
         )
 
@@ -1012,8 +1149,8 @@ async def help_command(ctx):
         title="Command List",
         color=THEME_CRIMSON,
     )
-    embed.add_field(name="Core", value="!ping\n!help\n!create\n!profile\n!reset", inline=True)
-    embed.add_field(name="Traits", value="!rolltrait\n!trait", inline=True)
+    embed.add_field(name="Core", value="!ping\n!help\n!create\n!profile\n!use\n!reset", inline=True)
+    embed.add_field(name="Traits", value="!rolltrait\n!trait\n!traithelp", inline=True)
     embed.add_field(name="Gear", value="!rollstarter\n!loadout\n!inv\n!choosestarter <w> <a>", inline=True)
     embed.add_field(name="Cultivation", value="!advance\n!level", inline=True)
     embed.add_field(name="Combat", value="!battle\n!raid", inline=True)
@@ -1036,17 +1173,26 @@ async def create_character(ctx):
         await ctx.send(embed=build_embed("Create Failed", "Could not create your character. Please try again.", discord.Color.red()))
         return
 
-    await ctx.send(
-        embed=build_embed(
-            "Character Created",
-            "You are ready to begin cultivation. Open the setup panel below and roll everything from one place.",
-            discord.Color.green(),
-        )
-    )
+    if not spend_trait_roll(user_id):
+        await ctx.send(embed=build_embed("Create Failed", "Could not start your first trait roll. Please try again.", discord.Color.red()))
+        return
+
+    trait = roll_random_trait()
+    if trait is None:
+        await ctx.send(embed=build_embed("Trait Roll Failed", "No trait was found for that rarity.", discord.Color.red()))
+        return
+
+    update_player_trait(user_id, trait["id"], trait["name"])
+    rolls_left = get_trait_rolls_left(user_id)
+    view = CreateJourneyView(ctx.author.id)
+    view.current_trait = trait
+    embed = build_create_trait_panel_embed(ctx.author.display_name, trait, rolls_left)
+    icon_file = attach_trait_icon(embed, trait)
 
     await ctx.send(
-        embed=build_create_journey_embed(user_id, ctx.author.display_name),
-        view=CreateJourneyView(ctx.author.id),
+        embed=embed,
+        file=icon_file,
+        view=view,
     )
 
 
@@ -1149,7 +1295,7 @@ async def starter_inventory(ctx):
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
+        lines.append(f"{get_item_icon(item)} **{get_item_display_name(item)}** [{get_item_rank(item)}]\n└ {stats_text}\n")
 
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
@@ -1175,11 +1321,7 @@ async def inventory_view(ctx):
         await ctx.send(embed=build_embed("No Character", "You do not have a character yet. Use !create first.", discord.Color.orange()))
         return
 
-    inventory_items = player.get("inventory_items", [])
-    
-    # Get gear inventory from game systems
-    game_data = get_player_game_data(str(ctx.author.id))
-    gear_inventory = game_data.get("gear_inventory", []) if game_data else []
+    gear_inventory = get_all_inventory_items(str(ctx.author.id), player)
     
     if not gear_inventory:
         await ctx.send(
@@ -1194,7 +1336,7 @@ async def inventory_view(ctx):
     lines = []
     for index, item in enumerate(gear_inventory, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
+        lines.append(f"{get_item_icon(item)} **{get_item_display_name(item)}** [{get_item_rank(item)}]\n└ {stats_text}\n")
 
     embed = discord.Embed(title="Armory", color=THEME_DARK)
     items_text = "\n".join(lines)
@@ -1245,11 +1387,13 @@ async def choose_starter(ctx, weapon_roll: int, armor_roll: int):
             [weapon_item.get("id"), armor_item.get("id")],
         )
 
+    set_equipped_gear(str(ctx.author.id), weapon_item, armor_item)
+
     await ctx.send(
         embed=build_embed(
             "Loadout Confirmed ✨",
-            f"{WEAPON_EMOJI} Weapon: {weapon_item.get('name')} [{weapon_item.get('rank')}]\n"
-            f"{ARMOR_EMOJI} Armor: {armor_item.get('name')} [{armor_item.get('rank')}]",
+            f"{WEAPON_EMOJI} Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            f"{ARMOR_EMOJI} Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]",
             discord.Color.green(),
         )
     )
@@ -1303,7 +1447,11 @@ from data.game_systems import (
     add_xp,
     get_xp_for_next_realm,
     battle,
+    calculate_combat_stats,
+    create_gear_item,
+    format_hp_bar,
     get_cooldown_remaining,
+    simulate_combat_round,
     set_cooldown,
 )
 from data.stats_system import (
@@ -1361,22 +1509,15 @@ async def player_profile(ctx):
     equipped_weapon = game_data["equipped_weapon"]
     equipped_armor = game_data["equipped_armor"]
     
-    trait_bonuses = {}
-    if player["trait_name"]:
-        trait_entry = find_trait_by_name(player["trait_name"])
-        if trait_entry:
-            rarity = trait_entry.get("rarity", "Common")
-            trait_bonuses = get_trait_bonuses(rarity)
+    trait_bonuses, trait_entry = get_player_trait_bonuses(player)
 
     total_stats = calculate_total_stats(base_stats, equipped_weapon, equipped_armor, trait_bonuses)
     rank_display, rank_letter = calculate_rank_from_stats(total_stats)
 
     realm_display = get_realm_display(player["realm"], player["realm_stage"])
     trait_display = player["trait_name"] or "None"
-    if player["trait_name"]:
-        trait_entry = find_trait_by_name(player["trait_name"])
-        if trait_entry:
-            trait_display = f"{get_trait_emoji(trait_entry)} {trait_entry['name']} ({trait_entry['rarity']})"
+    if trait_entry:
+        trait_display = f"{trait_entry['name']} ({trait_entry['rarity']})"
 
     # Build profile embed with user avatar
     embed = discord.Embed(
@@ -1385,8 +1526,11 @@ async def player_profile(ctx):
         color=THEME_DARK,
     )
     
-    # Add user avatar in top right
-    embed.set_thumbnail(url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url)
+    avatar_url = ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
+    embed.set_author(name=ctx.author.display_name, icon_url=avatar_url)
+    trait_icon_file = attach_trait_icon(embed, trait_entry, image=False) if trait_entry else None
+    if not trait_icon_file:
+        embed.set_thumbnail(url=avatar_url)
     
     xp = db_get_xp(user_id)
     next_realm_xp = get_xp_for_next_realm(player["realm_stage"])
@@ -1450,7 +1594,10 @@ async def player_profile(ctx):
     embed.add_field(name="Trait", value=trait_display, inline=False)
 
     embed.set_footer(text="!inv  |  !loadout  |  !cd")
-    await ctx.send(embed=embed)
+    if trait_icon_file:
+        await ctx.send(embed=embed, file=trait_icon_file)
+    else:
+        await ctx.send(embed=embed)
 
 
 @bot.command(name="gather")
@@ -1634,6 +1781,220 @@ async def wander_loot(ctx):
     )
 
 
+class BattleTurnView(discord.ui.View):
+    def __init__(self, author_id, player, player_stats, difficulty):
+        super().__init__(timeout=180)
+        self.author_id = int(author_id)
+        self.user_id = str(author_id)
+        self.player = player
+        self.player_stats = player_stats
+        self.difficulty = difficulty
+        self.round_count = 0
+        self.finished = False
+        self.turn_summary = "Click **Attack** to take your turn."
+
+        difficulty_multiplier = {"normal": 1.0, "hard": 1.3, "raid": 1.6}.get(difficulty, 1.0)
+        self.enemy_stats = calculate_combat_stats(
+            {
+                "damage": int(player_stats["damage"] * difficulty_multiplier * 0.8),
+                "defense": int(player_stats["defense"] * difficulty_multiplier * 0.8),
+                "luck": int(player_stats["luck"] * difficulty_multiplier * 0.7),
+                "speed": int(player_stats["speed"] * difficulty_multiplier * 0.9),
+                "armor": int(player_stats["armor"] * difficulty_multiplier * 0.8),
+                "hp": int((50 + player_stats.get("armor", 0) * 2) * difficulty_multiplier),
+            }
+        )
+        self.player_combat = calculate_combat_stats(player_stats)
+        self.player_health = self.player_combat["health"]
+        self.enemy_health = self.enemy_stats["health"]
+
+    def build_embed(self, title=None, color=None):
+        enemy_name = "Raid Calamity" if self.difficulty == "raid" else "Wild Cultivator"
+        embed = discord.Embed(
+            title=title or ("Raid Encounter" if self.difficulty == "raid" else "Battle Encounter"),
+            description=build_anime_header("Turn-Based Combat"),
+            color=color or (THEME_CRIMSON if self.difficulty == "raid" else THEME_DARK),
+        )
+        embed.add_field(name="Your HP", value=f"`{format_hp_bar(self.player_health, self.player_combat['health'])}`", inline=False)
+        embed.add_field(name=f"{enemy_name} HP", value=f"`{format_hp_bar(self.enemy_health, self.enemy_stats['health'])}`", inline=False)
+        embed.add_field(
+            name="Combat",
+            value=(
+                f"Your ATK **{self.player_combat['attack']}** / DEF **{self.player_combat['defense']}**\n"
+                f"Enemy ATK **{self.enemy_stats['attack']}** / DEF **{self.enemy_stats['defense']}**"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Current Turn", value=fit_embed_text(self.turn_summary, 950), inline=False)
+        embed.set_footer(text="Press Attack to take your next turn" if not self.finished else "Fight ended")
+        return embed
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This fight is not yours.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        if self.finished:
+            return
+        self.finished = True
+        for child in self.children:
+            child.disabled = True
+
+    def _disable_buttons(self):
+        self.finished = True
+        for child in self.children:
+            child.disabled = True
+
+    def _roll_rewards(self):
+        if self.difficulty == "raid":
+            xp_earned = random.randint(100, 150)
+            currency_earned = random.randint(100, 250)
+            loot_chance = 0.85
+        else:
+            xp_earned = random.randint(40, 80)
+            currency_earned = random.randint(60, 150)
+            loot_chance = 0.7
+
+        loot = (
+            create_gear_item(random.choice(["D", "C", "B"]), random.choice(["weapon", "armor"]))
+            if random.random() < loot_chance
+            else None
+        )
+        return xp_earned, currency_earned, loot
+
+    def _grant_rewards(self):
+        xp_earned, currency_earned, loot = self._roll_rewards()
+        if loot:
+            add_gear_to_inventory(self.user_id, [loot])
+        add_wallet_currency(self.user_id, currency_earned)
+
+        xp = get_xp(self.user_id)
+        new_xp, new_realm, leveled_up = add_xp_game(xp, self.player["realm_stage"], xp_earned)
+        set_xp(self.user_id, new_xp)
+        if leveled_up and new_realm != self.player["realm_stage"]:
+            update_player_realm(self.user_id, self.player["realm"], new_realm)
+
+        reward_lines = [f"XP **+{xp_earned}**", f"Spirit Coins **+{currency_earned}**"]
+        if loot:
+            reward_lines.append(f"Loot **{get_item_display_name(loot)} [{get_item_rank(loot)}]**")
+        if leveled_up:
+            reward_lines.append(f"Realm Up: stage **{new_realm}**")
+        return "\n".join(reward_lines)
+
+    def _player_attack(self):
+        logs = ["**Your Turn**"]
+        healing = 0
+
+        if random.random() * 100 <= self.enemy_stats["dodge_chance"]:
+            logs.append("The enemy dodges your attack.")
+            return 0, healing, logs
+
+        blocked = max(0, self.enemy_stats.get("defense", 0) // 2)
+        damage = max(1, self.player_combat["attack"] - blocked)
+        if random.random() * 100 < self.player_combat["crit_chance"]:
+            damage = int(damage * 1.5)
+            logs.append(f"You strike. Enemy DEF blocks **{blocked}**. Critical hit for **{damage}** damage.")
+        else:
+            logs.append(f"You strike. Enemy DEF blocks **{blocked}**. Dealt **{damage}** damage.")
+
+        if random.random() * 100 < self.player_combat.get("omen_chance_percent", 0):
+            omen_damage = max(1, self.player_combat["attack"] // 2)
+            damage += omen_damage
+            logs.append(f"Omen fulfilled: **+{omen_damage}** unavoidable damage.")
+
+        if self.player_combat.get("lifesteal_percent", 0):
+            healing = int(damage * self.player_combat["lifesteal_percent"] / 100)
+            if healing > 0:
+                logs.append(f"Lifesteal restores **{healing}** HP.")
+
+        return damage, healing, logs
+
+    def _enemy_attack(self):
+        logs = ["**Enemy Turn**"]
+
+        if random.random() * 100 <= self.player_combat["dodge_chance"]:
+            logs.append("You dodge the enemy attack.")
+            return 0, 0, logs
+
+        blocked = max(0, self.player_combat.get("defense", 0) // 2)
+        damage = max(1, self.enemy_stats["attack"] - blocked)
+        if random.random() * 100 < self.enemy_stats["crit_chance"]:
+            damage = int(damage * 1.5)
+            logs.append(f"Enemy attacks. Your DEF blocks **{blocked}**. Critical hit for **{damage}** damage.")
+        else:
+            logs.append(f"Enemy attacks. Your DEF blocks **{blocked}**. You take **{damage}** damage.")
+
+        reduction = self.player_combat.get("damage_reduction_percent", 0)
+        if reduction:
+            reduced_by = int(damage * reduction / 100)
+            damage -= reduced_by
+            logs.append(f"Damage reduction prevents **{reduced_by}** damage.")
+
+        counter_damage = 0
+        if random.random() * 100 < self.player_combat.get("counter_chance_percent", 0):
+            counter_damage = max(1, self.player_combat["attack"] // 2)
+            logs.append(f"Countered through fate for **{counter_damage}** damage.")
+
+        return damage, counter_damage, logs
+
+    @discord.ui.button(label="Attack", style=discord.ButtonStyle.danger)
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.finished:
+            await interaction.response.send_message("This fight is already over.", ephemeral=True)
+            return
+
+        self.round_count += 1
+        turn_lines = [f"**Round {self.round_count}**"]
+
+        player_damage, healing, player_logs = self._player_attack()
+        turn_lines.extend(player_logs)
+        self.enemy_health = max(0, self.enemy_health - player_damage)
+        self.player_health = min(
+            self.player_combat["health"],
+            max(0, self.player_health + healing),
+        )
+
+        if self.enemy_health <= 0:
+            self._disable_buttons()
+            rewards = self._grant_rewards()
+            turn_lines.append("**Victory.**")
+            self.turn_summary = "\n".join(turn_lines)
+            embed = self.build_embed("Opponent Defeated" if self.difficulty != "raid" else "Calamity Subdued", THEME_GOLD)
+            embed.add_field(name="Rewards", value=rewards, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        enemy_damage, counter_damage, enemy_logs = self._enemy_attack()
+        turn_lines.extend(enemy_logs)
+        self.player_health = max(0, self.player_health - enemy_damage)
+        self.enemy_health = max(0, self.enemy_health - counter_damage)
+
+        if self.enemy_health <= 0:
+            self._disable_buttons()
+            rewards = self._grant_rewards()
+            turn_lines.append("**Victory.**")
+            self.turn_summary = "\n".join(turn_lines)
+            embed = self.build_embed("Opponent Defeated" if self.difficulty != "raid" else "Calamity Subdued", THEME_GOLD)
+            embed.add_field(name="Rewards", value=rewards, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
+
+        if self.player_health <= 0:
+            self._disable_buttons()
+            turn_lines.append("**Defeat.**")
+            self.turn_summary = "\n".join(turn_lines)
+            await interaction.response.edit_message(
+                embed=self.build_embed("Defeated" if self.difficulty != "raid" else "Overwhelmed by Calamity", THEME_CRIMSON),
+                view=self,
+            )
+            return
+
+        self.turn_summary = "\n".join(turn_lines)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
 @bot.command(name="battle")
 async def combat_battle(ctx):
     """Engage in combat with an enemy."""
@@ -1664,54 +2025,18 @@ async def combat_battle(ctx):
 
     # Get player stats
     game_data = get_player_game_data(user_id)
+    player = get_player(user_id)
+    trait_bonuses, _ = get_player_trait_bonuses(player)
     player_stats = calculate_total_stats(
         game_data["base_stats"],
         game_data["equipped_weapon"],
         game_data["equipped_armor"],
+        trait_bonuses,
     )
 
-    # Conduct battle
-    won, xp_earned, battle_log, loot, currency_earned = battle_system(player_stats, "normal")
+    view = BattleTurnView(ctx.author.id, player, player_stats, "normal")
+    await ctx.send(embed=view.build_embed(), view=view)
 
-    # If won, add rewards
-    if won:
-        if loot:
-            add_gear_to_inventory(user_id, [loot])
-        
-        add_wallet_currency(user_id, currency_earned)
-
-        player = get_player(user_id)
-        xp = get_xp(user_id)
-        new_xp, new_realm, leveled_up = add_xp_game(xp, player["realm_stage"], xp_earned)
-        set_xp(user_id, new_xp)
-
-        if leveled_up and new_realm != player["realm_stage"]:
-            update_player_realm(user_id, player["realm"], new_realm)
-
-        level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
-        loot_msg = f"\n� **Divine Treasures:** {loot['rank']} {loot['type'].title()}" if loot else ""
-
-        embed = discord.Embed(title="Opponent Defeated", color=THEME_GOLD)
-        embed.add_field(name="Battle Log", value=battle_log, inline=False)
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-        embed.add_field(name="XP Gained", value=f"**+{xp_earned}**", inline=True)
-        embed.add_field(name="Spirit Coins", value=f"**+{currency_earned}**", inline=True)
-        if loot:
-            embed.add_field(name="Loot", value=f"{loot['rank']} {loot['type'].title()}", inline=True)
-        if level_up_msg:
-            embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
-        embed.set_footer(text="!battle again in 90s")
-        await ctx.send(embed=embed)
-    else:
-        await ctx.send(
-            embed=build_embed(
-                "🌪️ Defeated",
-                battle_log,
-                THEME_CRIMSON,
-            )
-        )
-
-    # Set cooldown (90 seconds)
     cooldowns = set_cooldown(cooldowns, "battle", 90)
     update_cooldowns(user_id, cooldowns)
 
@@ -1746,54 +2071,18 @@ async def combat_raid(ctx):
 
     # Get player stats
     game_data = get_player_game_data(user_id)
+    player = get_player(user_id)
+    trait_bonuses, _ = get_player_trait_bonuses(player)
     player_stats = calculate_total_stats(
         game_data["base_stats"],
         game_data["equipped_weapon"],
         game_data["equipped_armor"],
+        trait_bonuses,
     )
 
-    # Conduct raid
-    won, xp_earned, battle_log, loot, currency_earned = battle_system(player_stats, "raid")
+    view = BattleTurnView(ctx.author.id, player, player_stats, "raid")
+    await ctx.send(embed=view.build_embed(), view=view)
 
-    # If won, add rewards
-    if won:
-        if loot:
-            add_gear_to_inventory(user_id, [loot])
-        
-        add_wallet_currency(user_id, currency_earned)
-
-        player = get_player(user_id)
-        xp = get_xp(user_id)
-        new_xp, new_realm, leveled_up = add_xp_game(xp, player["realm_stage"], xp_earned)
-        set_xp(user_id, new_xp)
-
-        if leveled_up and new_realm != player["realm_stage"]:
-            update_player_realm(user_id, player["realm"], new_realm)
-
-        level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
-        loot_msg = f"\n� **Legendary Treasures:** {loot['rank']} {loot['type'].title()}" if loot else ""
-
-        embed = discord.Embed(title="Calamity Subdued", color=THEME_GOLD)
-        embed.add_field(name="Battle Log", value=battle_log, inline=False)
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-        embed.add_field(name="XP Gained", value=f"**+{xp_earned}**", inline=True)
-        embed.add_field(name="Spirit Coins", value=f"**+{currency_earned}**", inline=True)
-        if loot:
-            embed.add_field(name="Loot", value=f"{loot['rank']} {loot['type'].title()}", inline=True)
-        if level_up_msg:
-            embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
-        embed.set_footer(text="!raid again in 3m")
-        await ctx.send(embed=embed)
-    else:
-        await ctx.send(
-            embed=build_embed(
-                "☠️ Overwhelmed by Calamity",
-                battle_log,
-                THEME_CRIMSON,
-            )
-        )
-
-    # Set cooldown (180 seconds)
     cooldowns = set_cooldown(cooldowns, "raid", 180)
     update_cooldowns(user_id, cooldowns)
 
@@ -1850,6 +2139,7 @@ def get_trait_power_rating(rarity):
         "Legendary": "⭐⭐⭐⭐⭐ (Legendary)",
         "Celestial": "⭐⭐⭐⭐⭐ (Celestial - Elite)",
         "Godworthy": "⭐⭐⭐⭐⭐ (Godworthy - S-Tier)",
+        "Empyrean": "⭐⭐⭐⭐⭐ (Empyrean - Apex)",
     }
     return ratings.get(rarity, "Unknown")
 
@@ -1865,6 +2155,7 @@ def get_trait_rarity_tier(rarity):
         "Legendary": 6,
         "Celestial": 7,
         "Godworthy": 8,
+        "Empyrean": 9,
     }
     return tiers.get(rarity, 0)
 
@@ -1877,13 +2168,13 @@ def format_trait_bonuses_detailed(trait):
     for key, value in bonuses.items():
         if isinstance(value, bool):
             if value:
-                label = key.replace("_", " ").title()
+                label = get_trait_bonus_label(key)
                 bonus_text += f"• {label}\n"
         elif key.endswith("_multiplier") and isinstance(value, (int, float)):
-            label = key.replace("_multiplier", "").replace("_", " ").title()
+            label = get_trait_bonus_label(key.replace("_multiplier", ""))
             bonus_text += f"• {label} Multiplier: **{value:.2f}x**\n"
         elif isinstance(value, (int, float)):
-            label = key.replace("_percent", "").replace("_", " ").title()
+            label = get_trait_bonus_label(key)
             if key.endswith("_percent"):
                 bonus_text += f"• {label} +**{value}%**\n"
             else:
@@ -1938,7 +2229,6 @@ async def show_trait(ctx):
 
     # Format trait information
     rarity = trait.get("rarity", "Unknown")
-    emoji = trait.get("emoji", "✨")
     description = trait.get("description", "No description available.")
     power_rating = get_trait_power_rating(rarity)
     rarity_tier = get_trait_rarity_tier(rarity)
@@ -1946,19 +2236,22 @@ async def show_trait(ctx):
 
     # Build embed
     embed = discord.Embed(
-        title=f"{emoji} {trait_name} - {rarity} Trait",
+        title=f"{trait_name} - {rarity} Trait",
         description=description,
         color=discord.Color.gold() if rarity_tier >= 6 else discord.Color.blue(),
     )
+    icon_file = attach_trait_icon(embed, trait)
 
-    embed.add_field(name="Rarity Tier", value=f"{rarity_tier}/8", inline=True)
+    embed.add_field(name="Rarity Tier", value=f"{rarity_tier}/9", inline=True)
     embed.add_field(name="Power Rating", value=power_rating, inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="Bonuses", value=bonus_text.strip(), inline=False)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
 
     # Trait value assessment
-    if rarity in ("Godworthy", "Celestial"):
+    if rarity == "Empyrean":
+        assessment = "🌌 **EMPYREAN** — Apex-tier trait with rare, controlled authority."
+    elif rarity in ("Godworthy", "Celestial"):
         assessment = "🔥 **EXCEPTIONAL** — Elite-tier trait with immense power."
     elif rarity in ("Legendary", "Amazing"):
         assessment = "⚡ **EXCELLENT** — A powerful trait with strong advantages."
@@ -1974,6 +2267,99 @@ async def show_trait(ctx):
     embed.add_field(name="Assessment", value=assessment, inline=False)
     embed.set_footer(text=f"Trait ID: {trait.get('id', 'unknown')}")
 
+    if icon_file:
+        await ctx.send(embed=embed, file=icon_file)
+    else:
+        await ctx.send(embed=embed)
+
+
+@bot.command(name="traithelp")
+async def trait_help(ctx):
+    """Explain trait rarity order and roll odds."""
+    rarity_order = [
+        ("Common", "Tier 1", "Basic starter blessings"),
+        ("Uncommon", "Tier 2", "Slightly better early growth"),
+        ("Normal", "Tier 3", "Solid usable trait"),
+        ("Great", "Tier 4", "Strong and noticeable"),
+        ("Amazing", "Tier 5", "Rare, multi-stat power"),
+        ("Legendary", "Tier 6", "High-end combat/cultivation trait"),
+        ("Celestial", "Tier 7", "Elite-tier fate bending"),
+        ("Godworthy", "Tier 8", "Extremely rare apex-adjacent trait"),
+        ("Empyrean", "Tier 9", "Highest rarity, almost never seen"),
+    ]
+
+    total_weight = sum(RARITY_WEIGHTS.values())
+    lines = []
+    for rarity, tier, note in rarity_order:
+        weight = RARITY_WEIGHTS.get(rarity, 0)
+        chance = (weight / total_weight) * 100 if total_weight else 0
+        lines.append(f"**{tier} - {rarity}**: {chance:.3f}%\n- {note}")
+
+    embed = discord.Embed(
+        title="Trait Rarity Guide",
+        description="From most common to rarest:",
+        color=THEME_GOLD,
+    )
+    embed.add_field(name="Rarity Order", value="\n\n".join(lines), inline=False)
+    embed.add_field(
+        name="Apex Note",
+        value="Empyrean is above Godworthy. It has very strong buffs, but combat caps still keep it from fully breaking the game.",
+        inline=False,
+    )
+    embed.set_footer(text="Use !rolltrait or !create to roll traits")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="use")
+async def use_menu(ctx):
+    """Show health, level, rank, and future consumable actions."""
+    user_id = str(ctx.author.id)
+
+    if not player_exists(user_id):
+        await ctx.send(
+            embed=build_embed(
+                "No Character",
+                "You do not have a character yet. Use !create first.",
+                discord.Color.orange(),
+            )
+        )
+        return
+
+    player = get_player(user_id)
+    game_data = get_player_game_data(user_id)
+    if not game_data:
+        await ctx.send(embed=build_embed("Data Error", "Could not load your game data.", discord.Color.red()))
+        return
+
+    trait_bonuses, _ = get_player_trait_bonuses(player)
+    total_stats = calculate_total_stats(
+        game_data["base_stats"],
+        game_data["equipped_weapon"],
+        game_data["equipped_armor"],
+        trait_bonuses,
+    )
+    max_health = total_stats.get("hp", 50) + total_stats.get("armor", 0) * 2
+    rank_display, _ = calculate_rank_from_stats(total_stats)
+    xp = db_get_xp(user_id)
+    next_realm_xp = get_xp_for_next_realm(player["realm_stage"])
+    progress_pct = int((xp / next_realm_xp) * 100) if next_realm_xp > 0 else 0
+    realm_display = get_realm_display(player["realm"], player["realm_stage"])
+
+    embed = discord.Embed(
+        title="Use Menu",
+        description=build_anime_header("Combat Supplies"),
+        color=THEME_DARK,
+    )
+    embed.set_author(name=ctx.author.display_name, icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url)
+    embed.add_field(
+        name="Health",
+        value=f"`{format_hp_bar(max_health, max_health)}`\nCurrent fights start at full HP.",
+        inline=False,
+    )
+    embed.add_field(name="Level", value=f"{realm_display}\nXP **{xp:,}/{next_realm_xp:,}** ({progress_pct}%)", inline=True)
+    embed.add_field(name="Rank", value=rank_display, inline=True)
+    embed.add_field(name="Potions", value="No usable potions yet. Healing items will appear here once added.", inline=False)
+    embed.set_footer(text="Future: !use potion will heal you when consumables are added")
     await ctx.send(embed=embed)
 
 

@@ -74,12 +74,75 @@ def calculate_total_stats(base_stats, equipped_weapon=None, equipped_armor=None,
         total["armor"] += armor_stats.get("armor", 0)
         total["hp"] += armor_stats.get("hp", 0)
     
-    # Add trait bonuses
+    stat_aliases = {
+        "attack": "damage",
+        "damage": "damage",
+        "defense": "defense",
+        "def": "defense",
+        "hp": "hp",
+        "health": "hp",
+        "luck": "luck",
+        "lck": "luck",
+        "speed": "speed",
+        "armor": "armor",
+    }
+
+    combat_bonus_keys = {
+        "critical_chance_percent",
+        "dodge_chance_percent",
+        "damage_reduction_percent",
+        "lifesteal_percent",
+        "counter_chance_percent",
+        "omen_chance_percent",
+        "sequence_authority_percent",
+        "madness_resistance_percent",
+        "fate_anchor_percent",
+        "concealment_percent",
+        "qi_gain_percent",
+        "cultivation_speed_percent",
+        "breakthrough_reward_bonus_percent",
+        "loot_luck_percent",
+    }
+
+    # Add trait bonuses. Percent/flat stat bonuses affect the core sheet;
+    # mystery-style keys are preserved for combat/profile systems.
     if trait_bonuses and isinstance(trait_bonuses, dict):
-        total["damage"] += trait_bonuses.get("damage", 0)
-        total["defense"] += trait_bonuses.get("defense", 0)
-        total["luck"] += trait_bonuses.get("luck", 0)
-        total["speed"] += trait_bonuses.get("speed", 0)
+        for key, value in trait_bonuses.items():
+            if isinstance(value, bool):
+                total[key] = value
+                continue
+            if not isinstance(value, (int, float)):
+                total[key] = value
+                continue
+
+            if key in total:
+                total[key] += value
+            elif key.endswith("_percent"):
+                base_key = key.removesuffix("_percent")
+                stat_key = stat_aliases.get(base_key)
+                if stat_key in total:
+                    bonus_amount = int(total[stat_key] * value / 100)
+                    if value > 0:
+                        bonus_amount = max(1, bonus_amount)
+                    total[stat_key] += bonus_amount
+                elif key in combat_bonus_keys:
+                    total[key] = total.get(key, 0) + value
+            elif key.endswith("_flat") or key.endswith("_bonus"):
+                base_key = key.rsplit("_", 1)[0]
+                stat_key = stat_aliases.get(base_key)
+                if stat_key in total:
+                    total[stat_key] += value
+                else:
+                    total[key] = total.get(key, 0) + value
+            elif key.endswith("_multiplier"):
+                base_key = key.removesuffix("_multiplier")
+                stat_key = stat_aliases.get(base_key)
+                if stat_key in total:
+                    total[stat_key] = int(total[stat_key] * value)
+                else:
+                    total[key] = value
+            elif key in combat_bonus_keys:
+                total[key] = total.get(key, 0) + value
     
     return total
 
