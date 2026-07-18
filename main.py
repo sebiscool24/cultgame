@@ -56,40 +56,48 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # In-memory pending trait rolls. A trait is only saved after pressing Confirm.
 PENDING_TRAIT_ROLLS = {}
-WEAPON_EMOJI = "⚔️"
-ARMOR_EMOJI = "🛡️"
+WEAPON_EMOJI = "Weapon"
+ARMOR_EMOJI = "Armor"
+
+# Commands that do NOT require a character to be created yet
+NO_CHARACTER_COMMANDS = {"create", "ping", "help"}
+
+@bot.before_invoke
+async def require_character(ctx):
+    if ctx.command and ctx.command.name not in NO_CHARACTER_COMMANDS:
+        if not player_exists(str(ctx.author.id)):
+            embed = discord.Embed(
+                title="No Character",
+                description="You need to create a character first.\nUse **!create** to begin your cultivation path.",
+                color=discord.Color.orange(),
+            )
+            await ctx.send(embed=embed)
+            raise commands.CheckFailure("No character")
 THEME_DARK = discord.Color.from_rgb(30, 30, 50)  # Dark purple-black
 THEME_GOLD = discord.Color.from_rgb(218, 165, 32)  # Dark gold
 THEME_CRIMSON = discord.Color.from_rgb(139, 35, 69)  # Crimson red
 THEME_BRONZE = discord.Color.from_rgb(165, 130, 50)  # Bronze
 
 
-def gear_emoji(item_type):
-    return WEAPON_EMOJI if item_type == "weapon" else ARMOR_EMOJI if item_type == "armor" else "✨"
+def gear_label(item_type):
+    return "Weapon" if item_type == "weapon" else "Armor" if item_type == "armor" else "Item"
 
 
 def get_trait_emoji(trait):
-    return trait.get("emoji", "✨")
+    return trait.get("emoji", "")
 
 
 def get_item_emoji(item):
-    return item.get("emoji", gear_emoji(item.get("type")))
+    return ""
 
 
 def build_embed(title, description, color=discord.Color.blurple()):
     embed = discord.Embed(title=title, description=description, color=color)
-    embed.set_footer(text="Cultivation Path | Heavenly Realms")
     return embed
 
 
 def build_anime_header(title):
-    return (
-        "```\n"
-        "═══════════════════════\n"
-        f"  {title}\n"
-        "═══════════════════════\n"
-        "```"
-    )
+    return f"─── {title} ───"
 
 
 def format_trait_bonuses(bonuses):
@@ -162,11 +170,13 @@ def build_trait_roll_embed(trait, rolls_left, status_line):
         description=build_anime_header("Spirit Trait Resonance"),
         color=THEME_GOLD,
     )
-    embed.add_field(name=f"{get_trait_emoji(trait)} Trait", value=f"**{trait['name']}**", inline=True)
-    embed.add_field(name="🌈 Rarity", value=trait["rarity"], inline=True)
-    embed.add_field(name="🎲 Rolls Left", value=str(rolls_left), inline=True)
-    embed.add_field(name="📜 Lore", value=trait["description"], inline=False)
-    embed.add_field(name="✨ Blessings", value=format_trait_bonuses(trait["bonuses"]), inline=False)
+    trait_emoji = get_trait_emoji(trait)
+    trait_label = f"{trait_emoji} {trait['name']}" if trait_emoji else trait['name']
+    embed.add_field(name="Trait", value=f"**{trait_label}**", inline=True)
+    embed.add_field(name="Rarity", value=trait["rarity"], inline=True)
+    embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
+    embed.add_field(name="Lore", value=trait["description"], inline=False)
+    embed.add_field(name="Blessings", value=format_trait_bonuses(trait["bonuses"]), inline=False)
     embed.set_footer(text=status_line)
     return embed
 
@@ -178,12 +188,12 @@ def build_starter_roll_embed(item, roll_number, rolls_left, status_line):
         description=build_anime_header("Spirit Armory Summon"),
         color=THEME_DARK,
     )
-    embed.add_field(name="🎁 Roll", value=f"{roll_number}/10", inline=True)
-    embed.add_field(name=f"{get_item_emoji(item)} Item", value=f"**{item['name']}**", inline=True)
-    embed.add_field(name="🏷️ Rank", value=item["rank"], inline=True)
-    embed.add_field(name="🧭 Type", value=f"{get_item_emoji(item)} {item['type'].title()}", inline=True)
-    embed.add_field(name="🎲 Rolls Left", value=str(rolls_left), inline=True)
-    embed.add_field(name="📈 Stats", value=stats_text, inline=False)
+    embed.add_field(name="Roll", value=f"{roll_number}/10", inline=True)
+    embed.add_field(name="Item", value=f"**{item['name']}**", inline=True)
+    embed.add_field(name="Rank", value=item["rank"], inline=True)
+    embed.add_field(name="Type", value=item['type'].title(), inline=True)
+    embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
+    embed.add_field(name="Stats", value=stats_text, inline=False)
     embed.set_footer(text=status_line)
     return embed
 
@@ -257,38 +267,22 @@ def build_create_journey_embed(user_id, display_name):
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
     embed = discord.Embed(
-        title="🌸 Cultivara Creation Hub",
+        title="🌸 Cultivara — Creation Hub",
         description=(
-            "```\n"
-            "╔══════════════════════════════════════╗\n"
-            "║            ✦  ✧  ✦  ✧               ║\n"
-            "║                                      ║\n"
-            "║             /\\    /\\                ║\n"
-            "║            /  \\__/  \\               ║\n"
-            "║            \\  /  \\  /               ║\n"
-            "║             \\/____\\/                ║\n"
-            "║                                      ║\n"
-            "║           SAKURA SPIRIT GATE         ║\n"
-            "║                                      ║\n"
-            "║         NEW CULTIVATOR SETUP         ║\n"
-            "║                                      ║\n"
-            "╚══════════════════════════════════════╝\n"
-            "```\n"
-            "\n"
-            "**SETUP STEPS:**\n"
-            "1️⃣ **Roll Trait** - Choose your spiritual foundation\n"
-            "2️⃣ **Roll Starter** - Collect 10 pieces of gear\n"
-            "3️⃣ **🔴 FINALIZE CHARACTER 🔴** - Click \"Open Loadout\" below to select 1 weapon + 1 armor and confirm"
+            "Begin your cultivation path. Complete each step below in order."
         ),
         color=THEME_CRIMSON,
     )
-    embed.add_field(name="🧑 Cultivator", value=display_name, inline=True)
-    embed.add_field(name="🎲 Trait Rolls Left", value=str(trait_rolls_left), inline=True)
-    embed.add_field(name="🎁 Starter Rolls Left", value=str(starter_rolls_left), inline=True)
-    embed.add_field(name="✨ Current Trait", value=trait_name, inline=False)
-    embed.add_field(name=f"{WEAPON_EMOJI} Equipped Weapon", value=starter_weapon_name, inline=True)
-    embed.add_field(name=f"{ARMOR_EMOJI} Equipped Armor", value=starter_armor_name, inline=True)
-    embed.set_footer(text="⚠️ You MUST finalize before using combat/loot commands!")
+    embed.add_field(name="Cultivator", value=display_name, inline=True)
+    embed.add_field(name="Trait Rolls", value=f"**{trait_rolls_left}** remaining", inline=True)
+    embed.add_field(name="Starter Rolls", value=f"**{starter_rolls_left}** remaining", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.add_field(name="Current Trait", value=trait_name, inline=False)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.add_field(name="Weapon", value=starter_weapon_name, inline=True)
+    embed.add_field(name="Armor", value=starter_armor_name, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.set_footer(text="Step 1: Roll Trait  |  Step 2: Roll Starter  |  Step 3: Finalize Character")
     return embed
 
 
@@ -317,19 +311,18 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
     lines = []
     for index, item in enumerate(rolled_items, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_emoji(item)} {item['name']} [{item['rank']}] - {stats_text}")
+        lines.append(f"{index}. {item['name']} [{item['rank']}] — {stats_text}")
 
     embed = discord.Embed(
-        title="🧰 Loadout Tab | Spirit Equipment",
-        description=build_anime_header("Equipment Selection"),
+        title="Loadout — Equipment Selection",
         color=THEME_DARK,
     )
     items_text = "\n".join(lines)
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
-    embed.add_field(name="🗃️ Items", value=items_text, inline=False)
-    embed.add_field(name=f"{WEAPON_EMOJI} Current Weapon", value=starter_weapon_name, inline=True)
-    embed.add_field(name=f"{ARMOR_EMOJI} Current Armor", value=starter_armor_name, inline=True)
+    embed.add_field(name="Items", value=items_text, inline=False)
+    embed.add_field(name="Equipped Weapon", value=starter_weapon_name, inline=True)
+    embed.add_field(name="Equipped Armor", value=starter_armor_name, inline=True)
     embed.set_footer(
         text=(
             "Finalize your starter weapon + armor in this panel."
@@ -936,15 +929,17 @@ async def ping(ctx):
 @bot.command(name="help")
 async def help_command(ctx):
     embed = discord.Embed(
-        title="📖 Cultivara Command Grimoire",
-        description=build_anime_header("Command Guide"),
+        title="Command List",
         color=THEME_CRIMSON,
     )
-    embed.add_field(name="🌸 Core", value="!ping\n!help\n!profile\n!reset", inline=True)
-    embed.add_field(name="🧿 Traits", value="!rolltrait\nTrait icons follow each roll", inline=True)
-    embed.add_field(name="⚒️ Starter Gear", value=f"!rollstarter\n!loadout\n!inv\n!inventory\n!choosestarter <weapon_roll> <armor_roll>\n{WEAPON_EMOJI} weapon / {ARMOR_EMOJI} armor swap later", inline=True)
-    embed.add_field(name="🌠 Progression", value="!advance", inline=True)
-    embed.set_footer(text="Tip: Use the creation hub buttons to avoid retyping commands.")
+    embed.add_field(name="Core", value="!ping\n!help\n!create\n!profile\n!reset", inline=True)
+    embed.add_field(name="Traits", value="!rolltrait\n!trait", inline=True)
+    embed.add_field(name="Gear", value="!rollstarter\n!loadout\n!inv\n!choosestarter <w> <a>", inline=True)
+    embed.add_field(name="Cultivation", value="!advance\n!level", inline=True)
+    embed.add_field(name="Combat", value="!battle\n!raid", inline=True)
+    embed.add_field(name="Economy", value="!gather\n!hunt\n!wander\n!balance\n!deposit\n!withdraw", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.set_footer(text="Use !create first before any other command.")
     await ctx.send(embed=embed)
 
 
@@ -953,17 +948,17 @@ async def create_character(ctx):
     user_id = str(ctx.author.id)
 
     if player_exists(user_id):
-        await ctx.send(embed=build_embed("Character Exists ✨", "You already have a character. Use !profile to view it.", discord.Color.orange()))
+        await ctx.send(embed=build_embed("Character Exists", "You already have a character. Use !profile to view it.", discord.Color.orange()))
         return
 
     created = create_player(user_id, ctx.author.display_name)
     if not created:
-        await ctx.send(embed=build_embed("Create Failed ✨", "Could not create your character. Please try again.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Create Failed", "Could not create your character. Please try again.", discord.Color.red()))
         return
 
     await ctx.send(
         embed=build_embed(
-            "Character Created ✨",
+            "Character Created",
             "You are ready to begin cultivation. Open the setup panel below and roll everything from one place.",
             discord.Color.green(),
         )
@@ -1076,17 +1071,16 @@ async def starter_inventory(ctx):
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
     embed = discord.Embed(
-        title="🧰 Starter Loadout Candidates" if starter_finalize else "🧰 Loadout",
-        description=build_anime_header("Spirit Equipment Selection"),
+        title="Loadout — Starter Candidates" if starter_finalize else "Loadout",
         color=THEME_DARK,
     )
     items_text = "\n".join(lines)
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
-    embed.add_field(name="🗃️ Items", value=items_text, inline=False)
-    embed.add_field(name=f"{WEAPON_EMOJI} Current Weapon", value=starter_weapon_name, inline=True)
-    embed.add_field(name=f"{ARMOR_EMOJI} Current Armor", value=starter_armor_name, inline=True)
-    embed.set_footer(text="Keep exactly 1 weapon + 1 armor. Use dropdowns below or !choosestarter <weapon_roll> <armor_roll>.")
+    embed.add_field(name="Items", value=items_text, inline=False)
+    embed.add_field(name="Equipped Weapon", value=starter_weapon_name, inline=True)
+    embed.add_field(name="Equipped Armor", value=starter_armor_name, inline=True)
+    embed.set_footer(text="Keep 1 weapon + 1 armor. Use dropdowns or !choosestarter <weapon_roll> <armor_roll>.")
     await ctx.send(embed=embed, view=StarterSelectView(ctx.author.id, rolled_items, starter_finalize))
 
 
@@ -1117,14 +1111,14 @@ async def inventory_view(ctx):
     lines = []
     for index, item in enumerate(gear_inventory, 1):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
-        lines.append(f"{index}. {get_item_emoji(item)} {item['name']} [{item['rank']}] - {stats_text}")
+        lines.append(f"{index}. {item['name']} [{item['rank']}] — {stats_text}")
 
-    embed = discord.Embed(title="� Spiritual Armory", description=build_anime_header("Acquired Treasures"), color=THEME_DARK)
+    embed = discord.Embed(title="Armory", color=THEME_DARK)
     items_text = "\n".join(lines)
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
-    embed.add_field(name="📿 Artifacts", value=items_text, inline=False)
-    embed.set_footer(text=f"Use !loadout to equip {WEAPON_EMOJI} weapon and {ARMOR_EMOJI} armor for battle")
+    embed.add_field(name="Items", value=items_text, inline=False)
+    embed.set_footer(text="Use !loadout to equip a weapon and armor for battle")
     await ctx.send(embed=embed)
 
 
@@ -1311,62 +1305,66 @@ async def player_profile(ctx):
     # Add user avatar in top right
     embed.set_thumbnail(url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url)
     
-    # Status Legend Section
-    embed.add_field(
-        name="📊 Status Legend",
-        value=f"Discord: {ctx.author.mention}\n🌟 Name: **{player['character_name']}**",
-        inline=False
-    )
-    
-    # Realm & Cultivation Section
     xp = db_get_xp(user_id)
     next_realm_xp = get_xp_for_next_realm(player["realm_stage"])
-    embed.add_field(name="🌌 Realm", value=realm_display, inline=True)
-    embed.add_field(name="🧿 Cultivation", value=f"{xp:,}/{next_realm_xp:,} XP\n{int((xp/next_realm_xp)*100)}% Progress", inline=True)
-    
-    # Stats in grid format
+    progress_pct = int((xp / next_realm_xp) * 100) if next_realm_xp > 0 else 0
+
+    # Identity row
+    embed.add_field(name="Cultivator", value=f"{ctx.author.mention}\n**{player['character_name']}**", inline=True)
+    embed.add_field(name="Realm", value=realm_display, inline=True)
+    embed.add_field(name="Rank", value=rank_display, inline=True)
+
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+    embed.add_field(name="XP", value=f"{xp:,} / {next_realm_xp:,}", inline=True)
+    embed.add_field(name="Progress", value=f"{progress_pct}%", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
     embed.add_field(
-        name="⚔️ Stats - " + rank_display,
+        name="Combat Stats",
         value=(
-            f"⚔️ **DMG**: {total_stats['damage']} "
-            f"❤️ **HP**: {total_stats['hp']}\n"
-            f"🛡️ **DEF**: {total_stats['defense']} "
-            f"⚡ **SPD**: {total_stats['speed']}\n"
-            f"🍀 **LCK**: {total_stats['luck']} "
-            f"🗡️ **ARM**: {total_stats['armor']}"
+            f"**Damage** — {total_stats['damage']}\n"
+            f"**HP** — {total_stats['hp']}\n"
+            f"**Defense** — {total_stats['defense']}"
         ),
-        inline=False
+        inline=True
     )
-    
-    # Breakthrough & Status
-    embed.add_field(name="💫 Breakthrough", value="Ready", inline=True)
-    embed.add_field(name="❤️ Health", value="Perfect", inline=True)
-    embed.add_field(name="🚫 Status", value="None", inline=True)
-    
-    # Equipment Section
+    embed.add_field(
+        name="\u200b",
+        value=(
+            f"**Speed** — {total_stats['speed']}\n"
+            f"**Luck** — {total_stats['luck']}\n"
+            f"**Armor** — {total_stats['armor']}"
+        ),
+        inline=True
+    )
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
     weapon_name = "None"
     weapon_stats = ""
     armor_name = "None"
     armor_stats = ""
-    
+
     if equipped_weapon:
         weapon_name = f"{equipped_weapon.get('rank')} {equipped_weapon.get('name')}"
-        weapon_stats = " - " + ", ".join(f"{k}: +{v}" for k, v in equipped_weapon.get("stats", {}).items())
+        weapon_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_weapon.get("stats", {}).items())
     if equipped_armor:
         armor_name = f"{equipped_armor.get('rank')} {equipped_armor.get('name')}"
-        armor_stats = " - " + ", ".join(f"{k}: +{v}" for k, v in equipped_armor.get("stats", {}).items())
-    
-    embed.add_field(
-        name="🛠️ Equipment",
-        value=f"{WEAPON_EMOJI} **Weapon**: {weapon_name}{weapon_stats}\n{ARMOR_EMOJI} **Armor**: {armor_name}{armor_stats}",
-        inline=False
-    )
-    
-    # Trait Section
-    embed.add_field(name="✨ Trait", value=trait_display, inline=False)
-    
-    # Footer with action hints
-    embed.set_footer(text="Use !inv to view inventory | !loadout to equip items | !cd for cooldowns")
+        armor_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_armor.get("stats", {}).items())
+
+    embed.add_field(name="Weapon", value=f"{weapon_name}{weapon_stats}", inline=True)
+    embed.add_field(name="Armor", value=f"{armor_name}{armor_stats}", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+    embed.add_field(name="Trait", value=trait_display, inline=False)
+
+    embed.set_footer(text="!inv  |  !loadout  |  !cd")
     await ctx.send(embed=embed)
 
 
@@ -1422,13 +1420,13 @@ async def gather_loot(ctx):
     loot_section = f"\n\nResources Absorbed:\n{loot_text}" if loot_text else ""
     level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
     
-    await ctx.send(
-        embed=build_embed(
-            "⛩️ Meditation Complete",
-            f"**+{xp_earned} Spiritual Power** | **+{currency_earned}** Spirit Coins\n\nResources Absorbed:\n{loot_text}{level_up_msg}",
-            THEME_GOLD,
-        )
-    )
+    embed = discord.Embed(title="⛩️ Meditation Complete", color=THEME_GOLD)
+    embed.add_field(name="⚡ Spiritual Power", value=f"**+{xp_earned}** XP", inline=True)
+    embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
+    if level_up_msg:
+        embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
+    embed.set_footer(text="!gather again in 30s")
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="hunt")
@@ -1482,13 +1480,13 @@ async def hunt_loot(ctx):
     loot_text = "\n".join([f"• {item['rank']} {item['type'].title()}: **{item['id']}**" for item in loot_items])
     level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
     
-    await ctx.send(
-        embed=build_embed(
-            "⛩️ Cultivation Trial Complete",
-            f"**+{xp_earned} Spiritual Power** | **+{currency_earned}** Spirit Coins\n\nCombat Spoils:\n{loot_text}{level_up_msg}",
-            THEME_GOLD,
-        )
-    )
+    embed = discord.Embed(title="⛩️ Cultivation Trial Complete", color=THEME_GOLD)
+    embed.add_field(name="⚡ Spiritual Power", value=f"**+{xp_earned}** XP", inline=True)
+    embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
+    if level_up_msg:
+        embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
+    embed.set_footer(text="!hunt again in 60s")
+    await ctx.send(embed=embed)
 
 
 @bot.command(name="wander")
@@ -1608,13 +1606,17 @@ async def combat_battle(ctx):
         level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
         loot_msg = f"\n� **Divine Treasures:** {loot['rank']} {loot['type'].title()}" if loot else ""
 
-        await ctx.send(
-            embed=build_embed(
-                "⛩️ Opponent Defeated",
-                f"{battle_log}\n\n**+{xp_earned} Spiritual Power** | **+{currency_earned}** Spirit Coins{loot_msg}{level_up_msg}",
-                THEME_GOLD,
-            )
-        )
+        embed = discord.Embed(title="Opponent Defeated", color=THEME_GOLD)
+        embed.add_field(name="Battle Log", value=battle_log, inline=False)
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+        embed.add_field(name="XP Gained", value=f"**+{xp_earned}**", inline=True)
+        embed.add_field(name="Spirit Coins", value=f"**+{currency_earned}**", inline=True)
+        if loot:
+            embed.add_field(name="Loot", value=f"{loot['rank']} {loot['type'].title()}", inline=True)
+        if level_up_msg:
+            embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
+        embed.set_footer(text="!battle again in 90s")
+        await ctx.send(embed=embed)
     else:
         await ctx.send(
             embed=build_embed(
@@ -1686,13 +1688,17 @@ async def combat_raid(ctx):
         level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
         loot_msg = f"\n� **Legendary Treasures:** {loot['rank']} {loot['type'].title()}" if loot else ""
 
-        await ctx.send(
-            embed=build_embed(
-                "⚡ Calamity Subdued",
-                f"{battle_log}\n\n**+{xp_earned} Spiritual Power** | **+{currency_earned}** Spirit Coins{loot_msg}{level_up_msg}",
-                THEME_GOLD,
-            )
-        )
+        embed = discord.Embed(title="Calamity Subdued", color=THEME_GOLD)
+        embed.add_field(name="Battle Log", value=battle_log, inline=False)
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+        embed.add_field(name="XP Gained", value=f"**+{xp_earned}**", inline=True)
+        embed.add_field(name="Spirit Coins", value=f"**+{currency_earned}**", inline=True)
+        if loot:
+            embed.add_field(name="Loot", value=f"{loot['rank']} {loot['type'].title()}", inline=True)
+        if level_up_msg:
+            embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
+        embed.set_footer(text="!raid again in 3m")
+        await ctx.send(embed=embed)
     else:
         await ctx.send(
             embed=build_embed(
@@ -1732,20 +1738,18 @@ async def show_cooldowns(ctx):
             if remaining > 0:
                 cooldown_info.append(f"**{cmd.title()}**: {int(remaining)}s")
             else:
-                cooldown_info.append(f"**{cmd.title()}**: ✅ Ready")
+                cooldown_info.append(f"**{cmd.title()}**: Ready")
         else:
-            cooldown_info.append(f"**{cmd.title()}**: ✅ Ready")
+            cooldown_info.append(f"**{cmd.title()}**: Ready")
     
-    embed = discord.Embed(
-        title="⏳ Action Cooldowns",
-        description=build_anime_header("Cultivation Timer"),
-        color=THEME_DARK,
-    )
-    embed.add_field(
-        name="Current Status",
-        value="\n".join(cooldown_info),
-        inline=False,
-    )
+    ready = [c for c in cooldown_info if "Ready" in c]
+    waiting = [c for c in cooldown_info if "Ready" not in c]
+
+    embed = discord.Embed(title="Cultivation Cooldowns", color=THEME_DARK)
+    if ready:
+        embed.add_field(name="Ready", value="\n".join(ready), inline=True)
+    if waiting:
+        embed.add_field(name="Cooling Down", value="\n".join(waiting), inline=True)
     embed.set_footer(text="Spiritual energy recovers when timers reach zero")
     await ctx.send(embed=embed)
 
@@ -1862,29 +1866,27 @@ async def show_trait(ctx):
         color=discord.Color.gold() if rarity_tier >= 6 else discord.Color.blue(),
     )
 
-    embed.add_field(
-        name="════════════════════════════",
-        value=f"**Rarity Level:** {rarity_tier}/8\n**Power Rating:** {power_rating}",
-        inline=False,
-    )
-
-    embed.add_field(name="📊 Base Bonuses", value=bonus_text.strip(), inline=False)
+    embed.add_field(name="Rarity Tier", value=f"{rarity_tier}/8", inline=True)
+    embed.add_field(name="Power Rating", value=power_rating, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.add_field(name="Bonuses", value=bonus_text.strip(), inline=False)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
 
     # Trait value assessment
     if rarity in ("Godworthy", "Celestial"):
-        assessment = "🔥 **EXCEPTIONAL** - This is an elite-tier trait with immense power!"
+        assessment = "🔥 **EXCEPTIONAL** — Elite-tier trait with immense power."
     elif rarity in ("Legendary", "Amazing"):
-        assessment = "⚡ **EXCELLENT** - A powerful trait with strong advantages!"
+        assessment = "⚡ **EXCELLENT** — A powerful trait with strong advantages."
     elif rarity in ("Great",):
-        assessment = "✨ **VERY GOOD** - A solid trait with notable benefits!"
+        assessment = "✨ **VERY GOOD** — A solid trait with notable benefits."
     elif rarity in ("Normal",):
-        assessment = "👍 **DECENT** - A respectable trait for your journey."
+        assessment = "👍 **DECENT** — A respectable trait for your journey."
     elif rarity in ("Uncommon",):
-        assessment = "😐 **MODEST** - Basic benefits to aid your cultivation."
+        assessment = "😐 **MODEST** — Basic benefits to aid cultivation."
     else:
-        assessment = "🤷 **BASIC** - A humble trait, but every journey starts somewhere!"
+        assessment = "🤷 **BASIC** — A humble start, but every path begins somewhere."
 
-    embed.add_field(name="════════════════════════════", value=assessment, inline=False)
+    embed.add_field(name="Assessment", value=assessment, inline=False)
     embed.set_footer(text=f"Trait ID: {trait.get('id', 'unknown')}")
 
     await ctx.send(embed=embed)
@@ -1916,20 +1918,17 @@ async def show_level(ctx):
     filled = int((progress_pct / 100) * progress_bar_length)
     bar = "█" * filled + "░" * (progress_bar_length - filled)
 
-    embed = discord.Embed(
-        title="📈 Cultivation Progress",
-        description=build_anime_header("Ascendance Path"),
-        color=THEME_GOLD,
-    )
-    embed.add_field(name="🌌 Current Realm", value=realm_display, inline=True)
-    embed.add_field(name="🎯 Realm Stage", value=str(player["realm_stage"]), inline=True)
-    embed.add_field(name="⭐ XP Progress", value=f"**{xp}** / **{next_realm_xp}**", inline=True)
+    embed = discord.Embed(title="Cultivation Progress", color=THEME_GOLD)
+    embed.add_field(name="Realm", value=realm_display, inline=True)
+    embed.add_field(name="Stage", value=str(player["realm_stage"]), inline=True)
+    embed.add_field(name="XP", value=f"**{xp:,}** / **{next_realm_xp:,}**", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(
-        name="📊 Progress Bar",
-        value=f"{bar}\n**{progress_pct}%** to next realm",
+        name="Progress",
+        value=f"{bar}  **{progress_pct}%**",
         inline=False,
     )
-    embed.set_footer(text="Push beyond your limits | Ascend the heavenly realms")
+    embed.set_footer(text="Use !advance to attempt a breakthrough")
     await ctx.send(embed=embed)
 
 
@@ -1954,15 +1953,12 @@ async def show_balance(ctx):
     bank = get_bank_balance(user_id)
     total = wallet + bank
 
-    embed = discord.Embed(
-        title="💰 Spirit Treasury",
-        description=build_anime_header("Wealth Status"),
-        color=THEME_GOLD,
-    )
-    embed.add_field(name="👜 Wallet", value=f"**{wallet:,}** Spirit Coins", inline=True)
-    embed.add_field(name="🏦 Bank", value=f"**{bank:,}** Spirit Coins", inline=True)
-    embed.add_field(name="💎 Total", value=f"**{total:,}** Spirit Coins", inline=True)
-    embed.set_footer(text="Use !deposit to save coins | !withdraw to retrieve coins")
+    embed = discord.Embed(title="Spirit Treasury", color=THEME_GOLD)
+    embed.add_field(name="Wallet", value=f"**{wallet:,}**", inline=True)
+    embed.add_field(name="Bank", value=f"**{bank:,}**", inline=True)
+    embed.add_field(name="Total", value=f"**{total:,}**", inline=True)
+    embed.add_field(name="\u200b", value="Spirit Coins", inline=False)
+    embed.set_footer(text="!deposit  |  !withdraw  |  !dep all  |  !with all")
     await ctx.send(embed=embed)
 
 
