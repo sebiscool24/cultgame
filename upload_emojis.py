@@ -9,10 +9,6 @@ import discord
 from PIL import Image
 import numpy as np
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-if not TOKEN:
-    raise RuntimeError("Set DISCORD_TOKEN environment variable first.")
-
 SHEET_CONFIGS = {
     "weapons1": {
         "file": "assets/weapons1.webp",
@@ -23,8 +19,10 @@ SHEET_CONFIGS = {
     "armor": {
         "file": "assets/armor.webp",
         "cols": 9, "rows": 6,
-        "start_x": 168, "start_y": 115,
-        "cell_w": 148, "cell_h": 130,
+        "start_x": 249, "start_y": 127,
+        "cell_w": 107, "cell_h": 107,
+        "step_x": 125, "step_y": 127,
+        "content_scale": 1.10,
     },
 }
 
@@ -66,7 +64,37 @@ def remove_background(img):
     r, g, b, a = data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3]
     # Blue background is roughly R<160, G>160, B>200
     bg_mask = (r < 170) & (g > 160) & (b > 180) & (b > r + 30)
-    data[bg_mask] = [0, 0, 0, 0]
+
+    height, width = bg_mask.shape
+    edge_bg = np.zeros_like(bg_mask, dtype=bool)
+    stack = []
+
+    for x in range(width):
+        if bg_mask[0, x]:
+            stack.append((0, x))
+        if bg_mask[height - 1, x]:
+            stack.append((height - 1, x))
+    for y in range(height):
+        if bg_mask[y, 0]:
+            stack.append((y, 0))
+        if bg_mask[y, width - 1]:
+            stack.append((y, width - 1))
+
+    while stack:
+        y, x = stack.pop()
+        if edge_bg[y, x] or not bg_mask[y, x]:
+            continue
+        edge_bg[y, x] = True
+        if y > 0:
+            stack.append((y - 1, x))
+        if y < height - 1:
+            stack.append((y + 1, x))
+        if x > 0:
+            stack.append((y, x - 1))
+        if x < width - 1:
+            stack.append((y, x + 1))
+
+    data[edge_bg] = [0, 0, 0, 0]
     return Image.fromarray(data)
 
 
@@ -74,8 +102,8 @@ def cut_sprite(sheet_name, row, col):
     cfg = SHEET_CONFIGS[sheet_name]
     img = Image.open(cfg["file"]).convert("RGBA")
 
-    x = cfg["start_x"] + col * cfg["cell_w"]
-    y = cfg["start_y"] + row * cfg["cell_h"]
+    x = cfg["start_x"] + col * cfg.get("step_x", cfg["cell_w"])
+    y = cfg["start_y"] + row * cfg.get("step_y", cfg["cell_h"])
     sprite = img.crop((x, y, x + cfg["cell_w"], y + cfg["cell_h"]))
 
     # Remove blue background
@@ -86,14 +114,21 @@ def cut_sprite(sheet_name, row, col):
     if bbox:
         sprite = sprite.crop(bbox)
 
-    # Pad to square with transparent border
+    # Pad to square with transparent border, then fill more of the emoji frame.
+    output_size = 64
+    content_scale = cfg.get("content_scale", 1.0)
+    target_size = min(output_size, int(output_size * content_scale))
     max_dim = max(sprite.width, sprite.height)
-    padded = Image.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
-    offset_x = (max_dim - sprite.width) // 2
-    offset_y = (max_dim - sprite.height) // 2
-    padded.paste(sprite, (offset_x, offset_y))
+    scale = target_size / max_dim if max_dim else 1
+    resized = sprite.resize(
+        (max(1, int(sprite.width * scale)), max(1, int(sprite.height * scale))),
+        Image.LANCZOS,
+    )
 
-    padded = padded.resize((64, 64), Image.LANCZOS)
+    padded = Image.new("RGBA", (output_size, output_size), (0, 0, 0, 0))
+    offset_x = (output_size - resized.width) // 2
+    offset_y = (output_size - resized.height) // 2
+    padded.paste(resized, (offset_x, offset_y))
 
     buf = io.BytesIO()
     padded.save(buf, format="PNG")
@@ -102,6 +137,11 @@ def cut_sprite(sheet_name, row, col):
 
 
 async def main():
+    token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        raise RuntimeError("Set DISCORD_TOKEN environment variable first.")
+    upload_only = os.getenv("EMOJI_UPLOAD_ONLY", "all").lower()
+
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
 
@@ -113,10 +153,22 @@ async def main():
 
         # Delete old emojis first
         old_names = set()
-        for rank in WEAPON_RANK_SPRITES:
-            old_names.add(f"w_{rank.replace('-','m').replace('+','p')}")
-        for rank in ARMOR_RANK_SPRITES:
-            old_names.add(f"a_{rank.replace('-','m').replace('+','p')}")
+        if upload_only in {"all", "weapons", "weapon"}:
+            for rank in WEAPON_RANK_SPRITES:
+                old_names.add(f"w_{rank.replace('-','m').replace('+','p')}")
+        if upload_only in {"all", "armor"}:
+            for rank in ARMOR_RANK_SPRITES:
+                old_names.add(f"a_{rank.replace('-','m').replace('+','p')}")
+
+        weapon_sprites = {}
+        armor_sprites = {}
+        if upload_only in {"all", "weapons", "weapon"}:
+            weapon_sprites = {f"w_{k.replace('-','m').replace('+','p')}": v for k, v in WEAPON_RANK_SPRITES.items()}
+        if upload_only in {"all", "armor"}:
+            armor_sprites = {f"a_{k.replace('-','m').replace('+','p')}": v for k, v in ARMOR_RANK_SPRITES.items()}
+
+        if not old_names:
+            raise RuntimeError("EMOJI_UPLOAD_ONLY must be all, armor, weapon, or weapons.")
 
         for emoji in guild.emojis:
             if emoji.name in old_names:
@@ -127,8 +179,8 @@ async def main():
         # Upload new clean sprites
         uploaded = {}
         all_sprites = {
-            **{f"w_{k.replace('-','m').replace('+','p')}": v for k, v in WEAPON_RANK_SPRITES.items()},
-            **{f"a_{k.replace('-','m').replace('+','p')}": v for k, v in ARMOR_RANK_SPRITES.items()}
+            **weapon_sprites,
+            **armor_sprites,
         }
 
         for emoji_name, (sheet, row, col) in all_sprites.items():
@@ -144,7 +196,8 @@ async def main():
         print("\nDone! All icons re-uploaded with transparent backgrounds.")
         await client.close()
 
-    await client.start(TOKEN)
+    await client.start(token)
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())

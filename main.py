@@ -75,18 +75,18 @@ WEAPON_RANK_EMOJI = {
 }
 
 ARMOR_RANK_EMOJI = {
-    "F":  "<:a_F:1528145336877453354>",
-    "E":  "<:a_E:1528145340635549818>",
-    "D-": "<:a_Dm:1528145343953371236>",
-    "D":  "<:a_D:1528145347044704348>",
-    "D+": "<:a_Dp:1528145350156746932>",
-    "C-": "<:a_Cm:1528145352933376104>",
-    "C":  "<:a_C:1528145356783620156>",
-    "C+": "<:a_Cp:1528145360080474176>",
-    "B-": "<:a_Bm:1528145363129864343>",
-    "B":  "<:a_B:1528145366413738155>",
-    "B+": "<:a_Bp:1528145369480040558>",
-    "A-": "<:a_Am:1528145373116366849>",
+    "F":  "<:a_F:1528158679826825266>",
+    "E":  "<:a_E:1528158683337588748>",
+    "D-": "<:a_Dm:1528158686785044491>",
+    "D":  "<:a_D:1528158690367246366>",
+    "D+": "<:a_Dp:1528158693601050836>",
+    "C-": "<:a_Cm:1528158696570486929>",
+    "C":  "<:a_C:1528158700286640128>",
+    "C+": "<:a_Cp:1528158703792951388>",
+    "B-": "<:a_Bm:1528158708117540975>",
+    "B":  "<:a_B:1528158712580014251>",
+    "B+": "<:a_Bp:1528158716258681002>",
+    "A-": "<:a_Am:1528158719718723774>",
 }
 
 
@@ -307,22 +307,19 @@ def build_create_journey_embed(user_id, display_name):
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
     embed = discord.Embed(
-        title="🌸 Cultivara — Creation Hub",
+        title="Create Character",
         description=(
-            "Begin your cultivation path. Complete each step below in order."
+            "Choose a trait, roll starter gear, then save your loadout."
         ),
         color=THEME_CRIMSON,
     )
     embed.add_field(name="Cultivator", value=display_name, inline=True)
     embed.add_field(name="Trait Rolls", value=f"**{trait_rolls_left}** remaining", inline=True)
     embed.add_field(name="Starter Rolls", value=f"**{starter_rolls_left}** remaining", inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="Current Trait", value=trait_name, inline=False)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="Weapon", value=starter_weapon_name, inline=True)
     embed.add_field(name="Armor", value=starter_armor_name, inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-    embed.set_footer(text="Step 1: Roll Trait  |  Step 2: Roll Starter  |  Step 3: Finalize Character")
+    embed.set_footer(text="Trait -> Starter Gear -> Loadout")
     return embed
 
 
@@ -330,20 +327,22 @@ def build_create_trait_panel_embed(display_name, trait, rolls_left):
     embed = build_trait_roll_embed(
         trait,
         rolls_left,
-        "Tab: Trait Roll | Trait auto-applies each roll. Press Roll Trait to reroll or Back to Hub.",
+        "This trait is saved. Roll again if you want a different one.",
     )
-    embed.title = f"🎲 Trait Tab | {get_trait_emoji(trait)} {display_name}"
+    embed.title = f"Trait - {get_trait_emoji(trait)} {display_name}"
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
     return embed
 
 
 def build_create_starter_panel_embed(display_name, item, roll_number, rolls_left):
     status = (
-        "Tab: Starter Roll | All rolls complete. Open Loadout next."
+        "Starter rolls complete. Open Loadout next."
         if rolls_left <= 0
-        else "Tab: Starter Roll | Use Roll Starter again, or Back to Hub."
+        else "Roll again, or return to the main create panel."
     )
     embed = build_starter_roll_embed(item, roll_number, rolls_left, status)
-    embed.title = f"🎁 Starter Tab | {display_name}"
+    embed.title = f"Starter Gear - {display_name}"
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
     return embed
 
 
@@ -354,20 +353,23 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
         lines.append(f"{get_item_icon(item)} **{item['name']}** [{item['rank']}]\n└ {stats_text}\n")
 
     embed = discord.Embed(
-        title="Loadout — Equipment Selection",
+        title="Loadout",
+        description="Pick your saved starter equipment.\n\n",
         color=THEME_DARK,
     )
     items_text = "\n".join(lines)
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
     embed.add_field(name="Items", value=items_text, inline=False)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="Equipped Weapon", value=starter_weapon_name, inline=True)
     embed.add_field(name="Equipped Armor", value=starter_armor_name, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.set_footer(
         text=(
-            "Finalize your starter weapon + armor in this panel."
+            "Choose one weapon and one armor, then save."
             if starter_finalize
-            else "Swap your equipped weapon + armor in this panel."
+            else "Choose your equipped weapon and armor, then save."
         )
     )
     return embed
@@ -394,37 +396,37 @@ class CreateJourneyView(discord.ui.View):
     def _set_hub_buttons(self):
         self.clear_items()
 
-        roll_trait_btn = discord.ui.Button(label="Roll Trait", emoji="🎲", style=discord.ButtonStyle.primary)
+        roll_trait_btn = discord.ui.Button(label="Trait", style=discord.ButtonStyle.primary)
         roll_trait_btn.callback = self.roll_trait_button
         self.add_item(roll_trait_btn)
 
-        roll_starter_btn = discord.ui.Button(label="Roll Starter", emoji="🎁", style=discord.ButtonStyle.success)
+        roll_starter_btn = discord.ui.Button(label="Starter Gear", style=discord.ButtonStyle.primary)
         roll_starter_btn.callback = self.roll_starter_button
         self.add_item(roll_starter_btn)
 
-        open_loadout_btn = discord.ui.Button(label="Finalize Character ✅", emoji="⚔️", style=discord.ButtonStyle.danger)
+        open_loadout_btn = discord.ui.Button(label="Create", style=discord.ButtonStyle.success)
         open_loadout_btn.callback = self.open_loadout_button
         self.add_item(open_loadout_btn)
 
     def _set_trait_buttons(self):
         self.clear_items()
 
-        reroll_trait_btn = discord.ui.Button(label="Roll Trait", emoji="🎲", style=discord.ButtonStyle.primary)
+        reroll_trait_btn = discord.ui.Button(label="Roll Again", style=discord.ButtonStyle.primary)
         reroll_trait_btn.callback = self.roll_trait_button
         self.add_item(reroll_trait_btn)
 
-        back_btn = discord.ui.Button(label="Back To Hub", emoji="🏠", style=discord.ButtonStyle.secondary)
+        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
         back_btn.callback = self.back_to_hub_button
         self.add_item(back_btn)
 
     def _set_starter_buttons(self):
         self.clear_items()
 
-        reroll_starter_btn = discord.ui.Button(label="Roll Starter", emoji="🎁", style=discord.ButtonStyle.success)
+        reroll_starter_btn = discord.ui.Button(label="Roll Again", style=discord.ButtonStyle.primary)
         reroll_starter_btn.callback = self.roll_starter_button
         self.add_item(reroll_starter_btn)
 
-        back_btn = discord.ui.Button(label="Back To Hub", emoji="🏠", style=discord.ButtonStyle.secondary)
+        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
         back_btn.callback = self.back_to_hub_button
         self.add_item(back_btn)
 
@@ -446,7 +448,7 @@ class CreateJourneyView(discord.ui.View):
 
         if weapon_options:
             weapon_select = discord.ui.Select(
-                placeholder="Choose your final weapon" if self.current_starter_finalize else "Choose weapon",
+                placeholder="Choose weapon",
                 min_values=1,
                 max_values=1,
                 options=weapon_options,
@@ -456,7 +458,7 @@ class CreateJourneyView(discord.ui.View):
 
         if armor_options:
             armor_select = discord.ui.Select(
-                placeholder="Choose your final armor" if self.current_starter_finalize else "Choose armor",
+                placeholder="Choose armor",
                 min_values=1,
                 max_values=1,
                 options=armor_options,
@@ -464,11 +466,11 @@ class CreateJourneyView(discord.ui.View):
             armor_select.callback = self.select_armor_in_panel
             self.add_item(armor_select)
 
-        confirm_btn = discord.ui.Button(label="Equip Loadout", emoji="✅", style=discord.ButtonStyle.success)
+        confirm_btn = discord.ui.Button(label="Save Loadout", style=discord.ButtonStyle.success)
         confirm_btn.callback = self.confirm_loadout_in_panel
         self.add_item(confirm_btn)
 
-        back_btn = discord.ui.Button(label="Back To Hub", emoji="🏠", style=discord.ButtonStyle.secondary)
+        back_btn = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary)
         back_btn.callback = self.back_to_hub_button
         self.add_item(back_btn)
 
@@ -528,8 +530,8 @@ class CreateJourneyView(discord.ui.View):
             self._set_starter_buttons()
             await interaction.response.edit_message(
                 embed=build_embed(
-                    "🎁 Starter Tab Complete",
-                    "You have no starter rolls left. Press Back To Hub, then Open Loadout to finalize 1 weapon and 1 armor.",
+                    "Starter Gear Complete",
+                    "You have no starter rolls left. Press Back, then Loadout to choose 1 weapon and 1 armor.",
                     discord.Color.orange(),
                 ),
                 view=self,
