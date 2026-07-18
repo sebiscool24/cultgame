@@ -152,50 +152,44 @@ TRAITS = [
 ]
 
 
-def _pick_emoji(name, options):
-    key = name.lower()
-    for keywords, emoji in options:
-        if any(keyword in key for keyword in keywords):
-            return emoji
+RARITY_ICON_TIER = {
+    "Common": 1,
+    "Uncommon": 2,
+    "Normal": 3,
+    "Great": 4,
+    "Amazing": 5,
+    "Legendary": 5,
+    "Celestial": 5,
+    "Godworthy": 5,
+}
 
-    return None
-
-
-def _build_trait_emoji(name, rarity):
-    rarity_options = {
-        "Common": ["🍃", "🌱", "💨", "✨"],
-        "Uncommon": ["🌿", "🔥", "❄️", "⚡"],
-        "Normal": ["🌟", "🪶", "🫧", "🌙"],
-        "Great": ["👑", "🌪️", "🔱", "🜂"],
-        "Amazing": ["💠", "🪽", "🌌", "🫀"],
-        "Legendary": ["🐉", "🏮", "🗡️", "👑"],
-        "Celestial": ["☄️", "🌠", "🌙", "✨"],
-        "Godworthy": ["🜁", "🜂", "🜄", "🜃"],
-    }
-
-    themed_options = [
-        (("breath", "flow", "pulse", "tide", "current", "river", "wave"), "🌬️"),
-        (("stone", "iron", "rock", "mountain", "foundation", "core", "ward", "warden"), "🪨"),
-        (("sharp", "blade", "edge", "fang", "sword", "spear", "cleaver", "dagger", "hook", "knife", "axe"), "🗡️"),
-        (("flame", "ember", "cinder", "fire", "blaze", "volcanic", "sun", "solar", "dawn", "ash"), "🔥"),
-        (("moon", "lunar", "frost", "glacier", "ice", "winter", "mist", "dusk", "night", "shadow", "veil", "void"), "🌙"),
-        (("storm", "thunder", "gale", "wind", "tempest", "spark"), "⚡"),
-        (("star", "celestial", "astral", "heaven", "sky", "comet", "halo", "prism", "aurora", "eclipse"), "🌠"),
-        (("lotus", "blossom", "bloom", "petal", "verdant", "jade", "moss", "reed", "willow", "bamboo", "branch", "seed", "grain", "sprig"), "🪷"),
-        (("dragon", "sovereign", "monarch", "emperor", "crown", "throne", "destiny", "mandate", "authority", "verdict", "oath"), "👑"),
-        (("mirror", "echo", "whisper", "silent", "hush", "raven"), "🪞"),
-        (("abyss", "cataclysm", "rift", "primordial", "origin", "epoch", "eternal", "world"), "🌌"),
-    ]
-
-    emoji = _pick_emoji(name, themed_options)
-    if emoji:
-        return f"{emoji}{rarity_options.get(rarity, ['✨'])[0]}"
-
-    rarity_pool = rarity_options.get(rarity, ["✨"])
-    return f"{rarity_pool[sum(ord(char) for char in name) % len(rarity_pool)]}✨"
+RARITY_ICON_OFFSET = {
+    "Amazing": 0,
+    "Legendary": 4,
+    "Celestial": 8,
+    "Godworthy": 10,
+}
 
 
-TRAITS = [dict(trait, emoji=_build_trait_emoji(trait["name"], trait["rarity"])) for trait in TRAITS]
+def _assign_trait_icons(traits):
+    rarity_counts = {}
+    assigned = []
+    for trait in traits:
+        rarity = trait["rarity"]
+        rarity_counts[rarity] = rarity_counts.get(rarity, 0) + 1
+        tier = RARITY_ICON_TIER[rarity]
+        offset = RARITY_ICON_OFFSET.get(rarity, 0)
+        icon_index = ((rarity_counts[rarity] - 1 + offset) % 20) + 1
+        assigned.append(
+            dict(
+                trait,
+                icon_path=f"assets/traits/icons/tier_{tier}_{icon_index:02}.png",
+            )
+        )
+    return assigned
+
+
+TRAITS = _assign_trait_icons(TRAITS)
 
 RARITY_WEIGHTS = {
     "Common": 45,

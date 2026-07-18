@@ -2,6 +2,7 @@ import os
 import random
 import json
 import time
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -124,7 +125,26 @@ def gear_label(item_type):
 
 
 def get_trait_emoji(trait):
-    return trait.get("emoji", "")
+    return ""
+
+
+def get_trait_icon_file(trait):
+    icon_path = trait.get("icon_path")
+    if not icon_path:
+        return None
+
+    path = Path(icon_path)
+    if not path.exists():
+        return None
+
+    return discord.File(path, filename=path.name)
+
+
+def attach_trait_icon(embed, trait):
+    icon_file = get_trait_icon_file(trait)
+    if icon_file:
+        embed.set_image(url=f"attachment://{icon_file.filename}")
+    return icon_file
 
 
 def get_item_emoji(item):
@@ -206,13 +226,11 @@ def build_trait_roll_message(trait, rolls_left):
 
 def build_trait_roll_embed(trait, rolls_left, status_line):
     embed = discord.Embed(
-        title=f"{get_trait_emoji(trait)} Trait Roll",
+        title="Trait Roll",
         description=build_anime_header("Spirit Trait Resonance"),
         color=THEME_GOLD,
     )
-    trait_emoji = get_trait_emoji(trait)
-    trait_label = f"{trait_emoji} {trait['name']}" if trait_emoji else trait['name']
-    embed.add_field(name="Trait", value=f"**{trait_label}**", inline=True)
+    embed.add_field(name="Trait", value=f"**{trait['name']}**", inline=True)
     embed.add_field(name="Rarity", value=trait["rarity"], inline=True)
     embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
     embed.add_field(name="Lore", value=trait["description"], inline=False)
@@ -223,13 +241,15 @@ def build_trait_roll_embed(trait, rolls_left, status_line):
 
 def build_starter_roll_embed(item, roll_number, rolls_left, status_line):
     stats_text = ", ".join(f"{key}: +{value}" for key, value in item["stats"].items())
+    item_icon = get_item_icon(item)
+    item_label = f"{item_icon} **{item['name']}**" if item_icon else f"**{item['name']}**"
     embed = discord.Embed(
-        title=f"{get_item_emoji(item)} Starter Item Roll",
+        title="Starter Gear Roll",
         description=build_anime_header("Spirit Armory Summon"),
         color=THEME_DARK,
     )
     embed.add_field(name="Roll", value=f"{roll_number}/10", inline=True)
-    embed.add_field(name="Item", value=f"**{item['name']}**", inline=True)
+    embed.add_field(name="Item", value=item_label, inline=True)
     embed.add_field(name="Rank", value=item["rank"], inline=True)
     embed.add_field(name="Type", value=item['type'].title(), inline=True)
     embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
@@ -302,7 +322,7 @@ def build_create_journey_embed(user_id, display_name):
     trait_name = player.get("trait_name") or "Unselected"
     trait_entry = find_trait_by_name(player.get("trait_name"))
     if trait_entry:
-        trait_name = f"{get_trait_emoji(trait_entry)} {trait_name}"
+        trait_name = trait_entry["name"]
 
     starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
 
@@ -329,7 +349,7 @@ def build_create_trait_panel_embed(display_name, trait, rolls_left):
         rolls_left,
         "This trait is saved. Roll again if you want a different one.",
     )
-    embed.title = f"Trait - {get_trait_emoji(trait)} {display_name}"
+    embed.title = f"Trait - {display_name}"
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     return embed
 
@@ -507,8 +527,11 @@ class CreateJourneyView(discord.ui.View):
         self.mode = "trait"
         self._set_trait_buttons()
         rolls_left = get_trait_rolls_left(user_id)
+        embed = build_create_trait_panel_embed(interaction.user.display_name, trait, rolls_left)
+        icon_file = attach_trait_icon(embed, trait)
         await interaction.response.edit_message(
-            embed=build_create_trait_panel_embed(interaction.user.display_name, trait, rolls_left),
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
             view=self,
         )
 
@@ -534,6 +557,7 @@ class CreateJourneyView(discord.ui.View):
                     "You have no starter rolls left. Press Back, then Loadout to choose 1 weapon and 1 armor.",
                     discord.Color.orange(),
                 ),
+                attachments=[],
                 view=self,
             )
             return
@@ -542,6 +566,7 @@ class CreateJourneyView(discord.ui.View):
         self._set_starter_buttons()
         await interaction.response.edit_message(
             embed=build_create_starter_panel_embed(interaction.user.display_name, item, roll_number, rolls_left),
+            attachments=[],
             view=self,
         )
 
@@ -582,6 +607,7 @@ class CreateJourneyView(discord.ui.View):
                 starter_weapon_name,
                 starter_armor_name,
             ),
+            attachments=[],
             view=self,
         )
 
@@ -660,6 +686,7 @@ class CreateJourneyView(discord.ui.View):
                 help_text,
                 discord.Color.green(),
             ),
+            attachments=[],
             view=None,
         )
 
@@ -675,7 +702,7 @@ class CreateJourneyView(discord.ui.View):
         self.mode = "hub"
         self._set_hub_buttons()
         refreshed = build_create_journey_embed(str(self.author_id), interaction.user.display_name)
-        await interaction.response.edit_message(embed=refreshed, view=self)
+        await interaction.response.edit_message(embed=refreshed, attachments=[], view=self)
 
 
 class TraitRollView(discord.ui.View):
@@ -696,9 +723,17 @@ class TraitRollView(discord.ui.View):
         for child in self.children:
             child.disabled = True
 
+        embed = build_trait_roll_embed(
+            self.trait,
+            get_trait_rolls_left(str(self.author_id)),
+            "Locked in successfully.",
+        )
+        icon_file = attach_trait_icon(embed, self.trait)
+
         await interaction.response.edit_message(
             content="Trait locked in.",
-            embed=build_trait_roll_embed(self.trait, get_trait_rolls_left(str(self.author_id)), "Locked in successfully."),
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
             view=self,
         )
 
@@ -733,10 +768,13 @@ class TraitRollView(discord.ui.View):
         PENDING_TRAIT_ROLLS[user_id] = new_trait
 
         rolls_left = get_trait_rolls_left(user_id)
+        embed = build_trait_roll_embed(new_trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again.")
+        icon_file = attach_trait_icon(embed, new_trait)
 
         await interaction.response.edit_message(
             content=None,
-            embed=build_trait_roll_embed(new_trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again."),
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
             view=self,
         )
 
@@ -1035,9 +1073,12 @@ async def roll_trait(ctx):
 
     PENDING_TRAIT_ROLLS[user_id] = trait
     rolls_left = get_trait_rolls_left(user_id)
+    embed = build_trait_roll_embed(trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again.")
+    icon_file = attach_trait_icon(embed, trait)
 
     await ctx.send(
-        embed=build_trait_roll_embed(trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again."),
+        embed=embed,
+        file=icon_file,
         view=TraitRollView(ctx.author.id, trait),
     )
 
