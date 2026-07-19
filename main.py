@@ -61,7 +61,8 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # In-memory pending rolls. Rolls are only saved after pressing Confirm in standalone roll panels.
 PENDING_TRAIT_ROLLS = {}
-WEAPON_EMOJI = "Weapon"
+EGO_EMOJI = "Ego"
+WEAPON_EMOJI = EGO_EMOJI
 ARMOR_EMOJI = "Armor"
 
 WEAPON_RANK_EMOJI = {
@@ -98,6 +99,8 @@ ARMOR_RANK_EMOJI = {
 def get_item_icon(item):
     rank = item.get("rank", "")
     item_type = item.get("type", "")
+    if is_ego_item(item):
+        return f"[{rank} Ego]"
     if item_type == "weapon":
         return WEAPON_RANK_EMOJI.get(rank, "")
     elif item_type == "armor":
@@ -125,7 +128,13 @@ THEME_BRONZE = discord.Color.from_rgb(165, 130, 50)  # Bronze
 
 
 def gear_label(item_type):
-    return "Weapon" if item_type == "weapon" else "Armor" if item_type == "armor" else "Item"
+    return "Ego" if item_type == "weapon" else "Armor" if item_type == "armor" else "Item"
+
+
+def is_ego_item(item):
+    if not item:
+        return False
+    return item.get("category") == "ego" or str(item.get("id", "")).startswith("ego_")
 
 
 def get_trait_emoji(trait):
@@ -291,7 +300,7 @@ def get_item_display_name(item):
         return "Unknown Item"
     if item.get("name"):
         return item["name"]
-    item_type = item.get("type", "item").title()
+    item_type = "Ego" if is_ego_item(item) else gear_label(item.get("type", "item"))
     rank = item.get("rank", "?")
     short_id = str(item.get("id", "????"))[-4:]
     return f"{rank}-Rank {item_type} #{short_id}"
@@ -311,6 +320,22 @@ def get_all_inventory_items(user_id, player=None):
 
 def get_inventory_emoji_label(item):
     return f"{get_item_icon(item)} {get_item_display_name(item)} [{get_item_rank(item)}]"
+def truncate_select_text(text, limit=100):
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+def build_equipment_select_options(items):
+    options = []
+    for item in items[:25]:
+        stats = item.get("stats", {})
+        stat_text = ", ".join(f"{key}+{value}" for key, value in list(stats.items())[:3]) or "No stats"
+        options.append(
+            discord.SelectOption(
+                label=truncate_select_text(f"{get_item_display_name(item)} [{get_item_rank(item)}]"),
+                value=str(item.get("id", "")),
+                description=truncate_select_text(stat_text),
+            )
+        )
+    return options
 
 
 def find_trait_by_name(trait_name):
@@ -503,10 +528,10 @@ def build_starter_roll_message(item, roll_number, rolls_left):
         f"Roll {roll_number}/10\n"
         f"You obtained: {get_item_emoji(item)} {item['name']}\n"
         f"Rank: {item['rank']}\n"
-        f"Type: {get_item_emoji(item)} {item['type'].title()}\n"
+        f"Type: {get_item_emoji(item)} {gear_label(item['type'])}\n"
         f"Stats: {stats_text}\n"
         f"Starter Rolls Left: {rolls_left}\n"
-        "These are candidate items only. After all 10 rolls, keep exactly 1 weapon and 1 armor."
+        "These are candidate items only. After all 10 rolls, keep exactly 1 Ego and 1 armor."
     )
 
 
@@ -586,14 +611,14 @@ def build_create_loadout_panel_embed(display_name, rolled_items, starter_finaliz
         items_text = items_text[:1000] + "\n..."
     embed.add_field(name="Items", value=items_text, inline=False)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
-    embed.add_field(name="Equipped Weapon", value=starter_weapon_name, inline=True)
+    embed.add_field(name="Equipped Ego", value=starter_weapon_name, inline=True)
     embed.add_field(name="Equipped Armor", value=starter_armor_name, inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.set_footer(
         text=(
-            "Choose one weapon and one armor, then save."
+            "Choose one Ego and one armor, then save."
             if starter_finalize
-            else "Choose your equipped weapon and armor, then save."
+            else "Choose your equipped Ego and armor, then save."
         )
     )
     return embed
@@ -664,7 +689,7 @@ class CreateJourneyView(discord.ui.View):
             option = discord.SelectOption(
                 label=f"#{index} {get_item_display_name(item)} [{get_item_rank(item)}]",
                 value=str(index),
-                description=item.get("type", "unknown").title(),
+                description=gear_label(item.get("type", "unknown")),
             )
             if item.get("type") == "weapon":
                 weapon_options.append(option)
@@ -673,7 +698,7 @@ class CreateJourneyView(discord.ui.View):
 
         if weapon_options:
             weapon_select = discord.ui.Select(
-                placeholder="Choose weapon",
+                placeholder="Choose Ego",
                 min_values=1,
                 max_values=1,
                 options=weapon_options,
@@ -900,7 +925,7 @@ class CreateJourneyView(discord.ui.View):
 
         if self.selected_weapon_roll is None or self.selected_armor_roll is None:
             await interaction.response.send_message(
-                "Select both a weapon and an armor first.",
+                "Select both an Ego and armor first.",
                 ephemeral=True,
             )
             return
@@ -910,7 +935,7 @@ class CreateJourneyView(discord.ui.View):
 
         if weapon_item.get("type") != "weapon" or armor_item.get("type") != "armor":
             await interaction.response.send_message(
-                "Invalid picks. Choose a weapon in the weapon menu and armor in the armor menu.",
+                "Invalid picks. Choose an Ego in the Ego menu and armor in the armor menu.",
                 ephemeral=True,
             )
             return
@@ -932,7 +957,7 @@ class CreateJourneyView(discord.ui.View):
         self._set_hub_buttons()
 
         help_text = (
-            f"{WEAPON_EMOJI} Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            f"{EGO_EMOJI}: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
             f"{ARMOR_EMOJI} Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]\n\n"
             "**🎯 Next Steps:**\n"
             "• `!profile` - See your total stats & rank\n"
@@ -1150,7 +1175,7 @@ class StarterRollView(discord.ui.View):
             await interaction.response.edit_message(
                 embed=build_embed(
                     "Starter Rolls Complete",
-                    "No starter rolls left. Use !loadout to review candidates and keep 1 weapon + 1 armor.",
+                    "No starter rolls left. Use !loadout to review candidates and keep 1 Ego + 1 armor.",
                     discord.Color.orange(),
                 ),
                 view=self,
@@ -1167,7 +1192,7 @@ class StarterRollView(discord.ui.View):
                 item,
                 roll_number,
                 rolls_left,
-                "All 10 rolls complete. Use !loadout to finalize 1 weapon + 1 armor."
+                "All 10 rolls complete. Use !loadout to finalize 1 Ego + 1 armor."
                 if rolls_left <= 0
                 else "Press Roll Again to keep rolling.",
             ),
@@ -1181,7 +1206,7 @@ class StarterRollView(discord.ui.View):
             return
 
         await interaction.response.send_message(
-            "Use !loadout to view items and finalize your 1 weapon + 1 armor.",
+            "Use !loadout to view items and finalize your 1 Ego + 1 armor.",
             ephemeral=True,
         )
 
@@ -1202,7 +1227,7 @@ class StarterSelectView(discord.ui.View):
             option = discord.SelectOption(
                 label=f"#{index} {get_item_display_name(item)} [{get_item_rank(item)}]",
                 value=str(index),
-                description=item.get("type", "unknown").title(),
+                description=gear_label(item.get("type", "unknown")),
             )
             if item.get("type") == "weapon":
                 weapon_options.append(option)
@@ -1211,7 +1236,7 @@ class StarterSelectView(discord.ui.View):
 
         if weapon_options:
             weapon_select = discord.ui.Select(
-                placeholder="Choose your final weapon" if is_starter_finalize else "Choose weapon",
+                placeholder="Choose your final Ego" if is_starter_finalize else "Choose Ego",
                 min_values=1,
                 max_values=1,
                 options=weapon_options,
@@ -1236,7 +1261,7 @@ class StarterSelectView(discord.ui.View):
 
         self.selected_weapon_roll = int(interaction.data["values"][0])
         await interaction.response.send_message(
-            f"Weapon selected: roll #{self.selected_weapon_roll}.",
+            f"Ego selected: roll #{self.selected_weapon_roll}.",
             ephemeral=True,
         )
 
@@ -1266,7 +1291,7 @@ class StarterSelectView(discord.ui.View):
 
         if self.selected_weapon_roll is None or self.selected_armor_roll is None:
             await interaction.response.send_message(
-                "Select both a weapon and an armor first.",
+                "Select both an Ego and armor first.",
                 ephemeral=True,
             )
             return
@@ -1276,7 +1301,7 @@ class StarterSelectView(discord.ui.View):
 
         if weapon_item.get("type") != "weapon" or armor_item.get("type") != "armor":
             await interaction.response.send_message(
-                "Invalid picks. Choose a weapon in the weapon menu and armor in the armor menu.",
+                "Invalid picks. Choose an Ego in the Ego menu and armor in the armor menu.",
                 ephemeral=True,
             )
             return
@@ -1301,7 +1326,7 @@ class StarterSelectView(discord.ui.View):
 
         await interaction.response.edit_message(
             content=loadout_message
-            + f"Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            + f"Ego: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
             + f"Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]",
             view=self,
         )
@@ -1483,9 +1508,9 @@ async def starter_inventory(ctx):
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
     embed.add_field(name="Items", value=items_text, inline=False)
-    embed.add_field(name="Equipped Weapon", value=starter_weapon_name, inline=True)
+    embed.add_field(name="Equipped Ego", value=starter_weapon_name, inline=True)
     embed.add_field(name="Equipped Armor", value=starter_armor_name, inline=True)
-    embed.set_footer(text="Keep 1 weapon + 1 armor. Use dropdowns or !choosestarter <weapon_roll> <armor_roll>.")
+    embed.set_footer(text="Keep 1 Ego + 1 armor. Use dropdowns or !choosestarter <ego_roll> <armor_roll>.")
     await ctx.send(embed=embed, view=StarterSelectView(ctx.author.id, rolled_items, starter_finalize))
 
 
@@ -1503,7 +1528,7 @@ async def inventory_view(ctx):
         await ctx.send(
             embed=build_embed(
                 "Spiritual Armory Empty",
-                "No treasures yet. Gain artifacts through !gather, !hunt, !wander, !battle, and !raid commands.",
+                "No Egos or armor yet. Egos can rarely manifest through !gather, !hunt, !wander, !battle, and !raid.",
                 discord.Color.orange(),
             )
         )
@@ -1514,12 +1539,12 @@ async def inventory_view(ctx):
         stats_text = ", ".join(f"{key}: +{value}" for key, value in item.get("stats", {}).items())
         lines.append(f"{get_item_icon(item)} **{get_item_display_name(item)}** [{get_item_rank(item)}]\n└ {stats_text}\n")
 
-    embed = discord.Embed(title="Armory", color=THEME_DARK)
+    embed = discord.Embed(title="Ego Armory", color=THEME_DARK)
     items_text = "\n".join(lines)
     if len(items_text) > 1000:
         items_text = items_text[:1000] + "\n..."
     embed.add_field(name="Items", value=items_text, inline=False)
-    embed.set_footer(text="Use !loadout to equip a weapon and armor for battle")
+    embed.set_footer(text="Use !loadout to equip an Ego and armor for battle")
     await ctx.send(embed=embed)
 
 
@@ -1537,7 +1562,7 @@ async def choose_starter(ctx, weapon_roll: int, armor_roll: int):
         return
 
     if starter_finalize and get_starter_rolls_left(str(ctx.author.id)) > 0:
-        await ctx.send(embed=build_embed("Starter Not Finished", "Finish all 10 starter rolls first before choosing your final weapon and armor.", discord.Color.orange()))
+        await ctx.send(embed=build_embed("Starter Not Finished", "Finish all 10 starter rolls first before choosing your final Ego and armor.", discord.Color.orange()))
         return
 
     if weapon_roll < 1 or weapon_roll > len(rolled_items) or armor_roll < 1 or armor_roll > len(rolled_items):
@@ -1548,7 +1573,7 @@ async def choose_starter(ctx, weapon_roll: int, armor_roll: int):
     armor_item = rolled_items[armor_roll - 1]
 
     if weapon_item.get("type") != "weapon":
-        await ctx.send(embed=build_embed("Invalid Weapon", f"The selected item is not a {WEAPON_EMOJI} weapon.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Invalid Ego", f"The selected item is not an {EGO_EMOJI}.", discord.Color.red()))
         return
 
     if armor_item.get("type") != "armor":
@@ -1568,7 +1593,7 @@ async def choose_starter(ctx, weapon_roll: int, armor_roll: int):
     await ctx.send(
         embed=build_embed(
             "Loadout Confirmed ✨",
-            f"{WEAPON_EMOJI} Weapon: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
+            f"{EGO_EMOJI}: {get_item_display_name(weapon_item)} [{get_item_rank(weapon_item)}]\n"
             f"{ARMOR_EMOJI} Armor: {get_item_display_name(armor_item)} [{get_item_rank(armor_item)}]",
             discord.Color.green(),
         )
@@ -1624,9 +1649,9 @@ from data.game_systems import (
     get_xp_for_next_realm,
     battle,
     calculate_combat_stats,
-    create_gear_item,
     format_hp_bar,
     get_cooldown_remaining,
+    roll_ego_drop,
     simulate_combat_round,
     set_cooldown,
 )
@@ -1780,12 +1805,12 @@ def build_profile_equipment(member, ctx_data):
     embed.add_field(
         name="Equipped Gear",
         value=(
-            f"{format_equipped_item_line('Weapon', ctx_data['equipped_weapon'])}\n\n"
+            f"{format_equipped_item_line('Ego', ctx_data['equipped_weapon'])}\n\n"
             f"{format_equipped_item_line('Armor', ctx_data['equipped_armor'])}"
         ),
         inline=False,
     )
-    embed.set_footer(text="Use !loadout to change equipped gear")
+    embed.set_footer(text="Use the selectors below to equip an Ego or armor")
     return embed, None
 
 
@@ -1811,6 +1836,38 @@ class ProfileView(discord.ui.View):
         super().__init__(timeout=300)
         self.author_id = author_id
 
+    def _remove_equipment_selects(self):
+        for child in list(self.children):
+            if isinstance(child, discord.ui.Select):
+                self.remove_item(child)
+
+    def _add_equipment_selects(self, ctx_data):
+        self._remove_equipment_selects()
+        player = ctx_data["player"]
+        items = get_all_inventory_items(player["user_id"], player)
+        ego_items = [item for item in items if item.get("type") == "weapon"]
+        armor_items = [item for item in items if item.get("type") == "armor"]
+
+        if ego_items:
+            ego_select = discord.ui.Select(
+                placeholder="Equip Ego",
+                min_values=1,
+                max_values=1,
+                options=build_equipment_select_options(ego_items),
+            )
+            ego_select.callback = self.select_profile_ego
+            self.add_item(ego_select)
+
+        if armor_items:
+            armor_select = discord.ui.Select(
+                placeholder="Equip Armor",
+                min_values=1,
+                max_values=1,
+                options=build_equipment_select_options(armor_items),
+            )
+            armor_select.callback = self.select_profile_armor
+            self.add_item(armor_select)
+
     async def _ensure_owner(self, interaction):
         if interaction.user.id != self.author_id:
             await interaction.response.send_message("This profile panel belongs to another player.", ephemeral=True)
@@ -1824,8 +1881,27 @@ class ProfileView(discord.ui.View):
         if not ctx_data:
             await interaction.response.send_message("Could not refresh profile data.", ephemeral=True)
             return
+        self._remove_equipment_selects()
         embed, file = builder(interaction.user, ctx_data)
         await interaction.response.edit_message(embed=embed, attachments=[file] if file else [], view=self)
+
+    async def _refresh_equipment(self, interaction):
+        ctx_data = make_profile_context(str(self.author_id), interaction.user)
+        if not ctx_data:
+            await interaction.response.send_message("Could not refresh profile data.", ephemeral=True)
+            return
+        self._add_equipment_selects(ctx_data)
+        embed, file = build_profile_equipment(interaction.user, ctx_data)
+        await interaction.response.edit_message(embed=embed, attachments=[file] if file else [], view=self)
+
+    def _find_equipment_item(self, item_id, item_type):
+        player = get_player(str(self.author_id))
+        if not player:
+            return None
+        for item in get_all_inventory_items(str(self.author_id), player):
+            if str(item.get("id")) == str(item_id) and item.get("type") == item_type:
+                return item
+        return None
 
     @discord.ui.button(label="Overview", style=discord.ButtonStyle.primary)
     async def overview_button(self, interaction, button):
@@ -1841,7 +1917,31 @@ class ProfileView(discord.ui.View):
 
     @discord.ui.button(label="Equipment", style=discord.ButtonStyle.secondary)
     async def equipment_button(self, interaction, button):
-        await self._show(interaction, build_profile_equipment)
+        if not await self._ensure_owner(interaction):
+            return
+        await self._refresh_equipment(interaction)
+
+    async def select_profile_ego(self, interaction):
+        if not await self._ensure_owner(interaction):
+            return
+        ego = self._find_equipment_item(interaction.data["values"][0], "weapon")
+        if not ego:
+            await interaction.response.send_message("That Ego is no longer in your inventory.", ephemeral=True)
+            return
+        ctx_data = make_profile_context(str(self.author_id), interaction.user)
+        set_equipped_gear(str(self.author_id), ego, ctx_data["equipped_armor"] if ctx_data else None)
+        await self._refresh_equipment(interaction)
+
+    async def select_profile_armor(self, interaction):
+        if not await self._ensure_owner(interaction):
+            return
+        armor = self._find_equipment_item(interaction.data["values"][0], "armor")
+        if not armor:
+            await interaction.response.send_message("That armor is no longer in your inventory.", ephemeral=True)
+            return
+        ctx_data = make_profile_context(str(self.author_id), interaction.user)
+        set_equipped_gear(str(self.author_id), ctx_data["equipped_weapon"] if ctx_data else None, armor)
+        await self._refresh_equipment(interaction)
 
     @discord.ui.button(label="Inventory", style=discord.ButtonStyle.secondary)
     async def inventory_button(self, interaction, button):
@@ -2133,17 +2233,11 @@ class BattleTurnView(discord.ui.View):
         if self.difficulty == "raid":
             xp_earned = random.randint(39, 66)
             currency_earned = random.randint(100, 250)
-            loot_chance = 0.85
         else:
             xp_earned = random.randint(17, 33)
             currency_earned = random.randint(60, 150)
-            loot_chance = 0.7
 
-        loot = (
-            create_gear_item(random.choice(["D", "C", "B"]), random.choice(["weapon", "armor"]))
-            if random.random() < loot_chance
-            else None
-        )
+        loot = roll_ego_drop()
         return xp_earned, currency_earned, loot
 
     def _grant_rewards(self):
@@ -2160,7 +2254,7 @@ class BattleTurnView(discord.ui.View):
 
         reward_lines = [f"Gene Essence **+{xp_earned}**", f"Spirit Coins **+{currency_earned}**"]
         if loot:
-            reward_lines.append(f"Loot **{get_item_display_name(loot)} [{get_item_rank(loot)}]**")
+            reward_lines.append(f"Ego Manifested **{get_item_display_name(loot)} [{get_item_rank(loot)}]**")
         if leveled_up:
             reward_lines.append(f"Gene Lock Opened: **{new_realm}**")
         return "\n".join(reward_lines)

@@ -22,6 +22,18 @@ REALM_XP_THRESHOLDS = {
     10: 7000,
 }
 
+# Ego drop rates from cooldown rewards. The 4% roll happens first; rank is rolled only if an Ego drops.
+EGO_DROP_CHANCE = 0.04
+EGO_RANK_WEIGHTS = {
+    "F": 7000,
+    "E": 2000,
+    "D": 700,
+    "C": 240,
+    "B": 50,
+    "A": 9,
+    "S": 1,
+}
+
 # Gear rank -> base stat multipliers (factor for random range)
 GEAR_RANK_STATS = {
     "S": {"min": 60, "max": 90, "luck": (8, 15), "speed": (12, 20), "armor": (15, 25)},
@@ -31,6 +43,16 @@ GEAR_RANK_STATS = {
     "D": {"min": 5, "max": 10, "luck": (1, 3), "speed": (2, 5), "armor": (2, 6)},
     "E": {"min": 2, "max": 5, "luck": (1, 2), "speed": (1, 3), "armor": (1, 3)},
     "F": {"min": 1, "max": 3, "luck": (0, 1), "speed": (0, 2), "armor": (0, 1)},
+}
+
+EGO_NAMES = {
+    "F": ["Flicker", "Cracked Fang", "Rust Pulse", "Lowborn Spark"],
+    "E": ["Grief Edge", "Pale Thorn", "Ash Halo", "Hunger Mark"],
+    "D": ["Blood Signal", "Iron Vow", "Hollow Crown", "Mute Star"],
+    "C": ["Red Mirror", "Black Anthem", "Glass Tyrant", "Feral Psalm"],
+    "B": ["Moon Verdict", "Sable Monarch", "Rift Saint", "Ivory Calamity"],
+    "A": ["Abyss Scripture", "Heaven's Scar", "Crowned Ruin", "Star Devourer"],
+    "S": ["World-Eater Ego", "Deified Self", "Origin Throne", "Final Monarch"],
 }
 
 # Loot command rewards - essence comes from survival, hunts, and sanctuary exploration.
@@ -115,6 +137,52 @@ def create_gear_item(rank: str, item_type: str) -> Dict:
         },
         "created_at": int(time.time()),
     }
+
+
+def roll_ego_rank() -> str:
+    """Roll an Ego rank after the rare Ego drop check succeeds."""
+    ranks = list(EGO_RANK_WEIGHTS.keys())
+    weights = list(EGO_RANK_WEIGHTS.values())
+    return random.choices(ranks, weights=weights, k=1)[0]
+
+
+def create_ego_item(rank: Optional[str] = None) -> Dict:
+    """Generate a rare Ego item. Egos use the offensive equipment slot."""
+    rank = rank or roll_ego_rank()
+    rank_config = GEAR_RANK_STATS.get(rank, GEAR_RANK_STATS["F"])
+    name = random.choice(EGO_NAMES.get(rank, EGO_NAMES["F"]))
+    base_damage = random.randint(rank_config["min"], rank_config["max"])
+    defense = random.randint(0, max(1, rank_config["armor"][1] // 2))
+    luck = random.randint(*rank_config["luck"])
+    speed = random.randint(*rank_config["speed"])
+    armor = random.randint(0, rank_config["armor"][1])
+    hp = random.randint(rank_config["min"], rank_config["max"])
+
+    return {
+        "id": f"ego_{rank}_{random.randint(100000, 999999)}",
+        "name": f"{rank}-Rank Ego: {name}",
+        "type": "weapon",
+        "category": "ego",
+        "rank": rank,
+        "description": "A manifested self-image weaponized by gene pressure.",
+        "icon_sheet": "assets/egos/ego_icons_sheet.png",
+        "stats": {
+            "damage": base_damage,
+            "defense": defense,
+            "luck": luck,
+            "speed": speed,
+            "armor": armor,
+            "hp": hp,
+        },
+        "created_at": int(time.time()),
+    }
+
+
+def roll_ego_drop(drop_chance: float = EGO_DROP_CHANCE) -> Optional[Dict]:
+    """Return a generated Ego on the rare cooldown drop roll."""
+    if random.random() >= drop_chance:
+        return None
+    return create_ego_item()
 
 
 def calculate_total_stats(
@@ -317,13 +385,7 @@ def battle(
             xp_earned = random.randint(100, 150)
             currency_earned = random.randint(100, 250)
         
-        # 70% chance for loot on normal, 85% on raid
-        loot_chance = 0.7 if difficulty == "normal" else 0.85
-        loot = (
-            create_gear_item(random.choice(["D", "C", "B"]), random.choice(["weapon", "armor"]))
-            if random.random() < loot_chance
-            else None
-        )
+        loot = roll_ego_drop()
         return won, xp_earned, log_str, loot, currency_earned
     else:
         return won, 0, log_str, None, 0
@@ -404,9 +466,5 @@ def generate_loot(command: str) -> Tuple[List[Dict], int, int]:
     xp_earned = random.randint(*rewards["xp_range"])
     currency_earned = random.randint(*rewards["currency_range"])
 
-    # Farming commands don't drop gear
-    if not rewards.get("drop_gear", True):
-        return [], xp_earned, currency_earned
-    
-    # Combat commands might drop gear - this is handled by battle() function
-    return [], xp_earned, currency_earned
+    ego = roll_ego_drop()
+    return ([ego] if ego else []), xp_earned, currency_earned
