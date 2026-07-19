@@ -2,12 +2,14 @@ import os
 import random
 import json
 import time
+import io
 from pathlib import Path
 
 import discord
 from discord.ext import commands
+from PIL import Image
 
-from data.realms import get_breakthrough_chance, get_next_realm, get_progression_requirement, get_realm_bonus, get_realm_display
+from data.realms import REALMS, get_breakthrough_chance, get_next_realm, get_progression_requirement, get_realm_bonus, get_realm_display
 from data.starter_items import STARTER_ITEM_RANK_CHANCES, get_item_pool, get_rank_chances
 from data.traits import RARITY_WEIGHTS, get_bloodline_pool, get_bloodlines_by_rarity, get_origin_pool, get_origins_by_rarity, get_trait_pool
 from data.stats_system import calculate_total_stats
@@ -103,7 +105,7 @@ def get_item_icon(item):
     return ""
 
 # Commands that do NOT require a character to be created yet
-NO_CHARACTER_COMMANDS = {"create", "ping", "help", "originhelp", "orginhelp", "ogrinhelp", "bloodlinehelp", "traithelp"}
+NO_CHARACTER_COMMANDS = {"create", "ping", "help", "originhelp", "orginhelp", "ogrinhelp", "bloodlinehelp", "traithelp", "realm", "realms", "evolution", "evolutions", "genepath"}
 
 @bot.before_invoke
 async def require_character(ctx):
@@ -111,7 +113,7 @@ async def require_character(ctx):
         if not player_exists(str(ctx.author.id)):
             embed = discord.Embed(
                 title="No Character",
-                description="You need to create a character first.\nUse **!create** to begin your cultivation path.",
+                description="You need to create a character first.\nUse **!create** to begin your gene path.",
                 color=discord.Color.orange(),
             )
             await ctx.send(embed=embed)
@@ -152,6 +154,36 @@ def attach_trait_icon(embed, trait, *, image=True):
     return icon_file
 
 
+def build_profile_path_icons_file(origin_entry, bloodline_entry, user_id):
+    icons = []
+    for entry in (origin_entry, bloodline_entry):
+        if not entry or not entry.get("icon_path"):
+            continue
+        path = Path(entry["icon_path"])
+        if not path.exists():
+            continue
+        icon = Image.open(path).convert("RGBA")
+        icon.thumbnail((64, 64), Image.Resampling.LANCZOS)
+        icons.append(icon)
+
+    if not icons:
+        return None
+
+    gap = 18
+    width = (len(icons) * 64) + ((len(icons) - 1) * gap)
+    canvas = Image.new("RGBA", (width, 64), (0, 0, 0, 0))
+    x = 0
+    for icon in icons:
+        canvas.alpha_composite(icon, (x + (64 - icon.width) // 2, (64 - icon.height) // 2))
+        x += 64 + gap
+
+    buffer = io.BytesIO()
+    canvas.save(buffer, format="PNG")
+    buffer.seek(0)
+    filename = f"profile_paths_{user_id}.png"
+    return discord.File(buffer, filename=filename)
+
+
 def get_item_emoji(item):
     return ""
 
@@ -183,13 +215,13 @@ def fit_embed_text(text, limit=1000):
 TRAIT_BONUS_LABELS = {
     "attack_percent": "Attack",
     "damage_percent": "Attack",
-    "qi_gain_percent": "Qi Gain",
+    "qi_gain_percent": "Essence Gain",
     "defense_percent": "Defense",
     "hp_percent": "HP",
     "luck_percent": "Luck",
     "critical_chance_percent": "Crit Chance",
     "dodge_chance_percent": "Dodge Chance",
-    "cultivation_speed_percent": "Cultivation Speed",
+    "cultivation_speed_percent": "Gene Assimilation",
     "loot_luck_percent": "Loot Luck",
     "omen_chance_percent": "Omen Chance",
     "sequence_authority_percent": "Sequence Authority",
@@ -199,7 +231,7 @@ TRAIT_BONUS_LABELS = {
     "fate_anchor_percent": "Fate Anchor",
     "concealment_percent": "Concealment",
     "madness_resistance_percent": "Madness Resistance",
-    "breakthrough_reward_bonus_percent": "Breakthrough Reward",
+    "breakthrough_reward_bonus_percent": "Evolution Reward",
     "unique_evolution_path": "Unique Evolution Path",
     "extra_breakthrough_reward": "Extra Breakthrough Reward",
     "unique_ability_later": "Unique Ability Later",
@@ -826,9 +858,9 @@ class CreateJourneyView(discord.ui.View):
             "• `!profile` - See your total stats & rank\n"
             "• `!origin` - Inspect your Origin\n"
             "• `!bloodline` - Inspect your Bloodline\n"
-            "• `!gather` / `!hunt` / `!wander` - Get loot & XP\n"
+            "• `!gather` / `!hunt` / `!wander` - Get loot & Gene Essence\n"
             "• `!battle` / `!raid` - Combat challenges\n"
-            "• `!level` - Check realm progression"
+            "• `!level` - Check gene progression"
         )
 
         await interaction.response.edit_message(
@@ -906,9 +938,9 @@ class CreateJourneyView(discord.ui.View):
             "• `!profile` - See your total stats & rank\n"
             "• `!cd` - Check action cooldowns\n"
             "• `!inv` - View inventory & swap gear\n"
-            "• `!gather` / `!hunt` / `!wander` - Get loot & XP\n"
+            "• `!gather` / `!hunt` / `!wander` - Get loot & Gene Essence\n"
             "• `!battle` / `!raid` - Combat challenges\n"
-            "• `!level` - Check realm progression"
+            "• `!level` - Check gene progression"
         )
         
         await interaction.response.edit_message(
@@ -1295,7 +1327,7 @@ async def help_command(ctx):
     embed.add_field(name="Origins", value="!origin\n!originhelp", inline=True)
     embed.add_field(name="Bloodlines", value="!bloodline\n!bloodlinehelp", inline=True)
     embed.add_field(name="Gear", value="!loadout\n!inv", inline=True)
-    embed.add_field(name="Cultivation", value="!advance\n!level", inline=True)
+    embed.add_field(name="Evolution", value="!advance\n!level\n!realm", inline=True)
     embed.add_field(name="Combat", value="!battle\n!raid", inline=True)
     embed.add_field(name="Economy", value="!gather\n!hunt\n!wander\n!balance\n!deposit\n!withdraw", inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
@@ -1558,11 +1590,11 @@ async def advance(ctx):
     bonus = get_realm_bonus(realm_name)
 
     if player['qi'] < requirement:
-        await ctx.send(embed=build_embed("🌠 Breakthrough Requirements", f"You need **{requirement} Qi** to advance.\nCurrent Qi: **{player['qi']}**\nBreakthrough chance: **{chance}%**", discord.Color.orange()))
+        await ctx.send(embed=build_embed("Gene Evolution Requirements", f"You need **{requirement} Qi** to force an evolution.\nCurrent Qi: **{player['qi']}**\nEvolution chance: **{chance}%**", discord.Color.orange()))
         return
 
     if not spend_qi(str(ctx.author.id), requirement):
-        await ctx.send(embed=build_embed("Insufficient Qi", "You do not have enough Qi to attempt this breakthrough.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Insufficient Qi", "You do not have enough Qi to attempt this evolution.", discord.Color.red()))
         return
 
     success = random.randint(1, 100) <= chance
@@ -1577,9 +1609,9 @@ async def advance(ctx):
                 next_stage = 1
 
         update_player_realm(str(ctx.author.id), realm_name, next_stage)
-        await ctx.send(embed=build_embed("✨ Breakthrough Success", f"Realm: **{get_realm_display(realm_name, next_stage)}**\nBonus: **{bonus}**", discord.Color.green()))
+        await ctx.send(embed=build_embed("Gene Lock Opened", f"Evolution: **{get_realm_display(realm_name, next_stage)}**\nAdaptation: **{bonus}**", discord.Color.green()))
     else:
-        await ctx.send(embed=build_embed("🌫️ Breakthrough Failed", f"You spent **{requirement} Qi**.\nBreakthrough chance: **{chance}%**", discord.Color.red()))
+        await ctx.send(embed=build_embed("Evolution Failed", f"You spent **{requirement} Qi**.\nEvolution chance: **{chance}%**", discord.Color.red()))
 
 
 # ============================================================================
@@ -1620,6 +1652,202 @@ from game_db_functions import (
 )
 
 
+
+def make_profile_context(user_id, member):
+    player = get_player(user_id)
+    game_data = get_player_game_data(user_id)
+    if not player or not game_data:
+        return None
+
+    base_stats = game_data["base_stats"]
+    equipped_weapon = game_data["equipped_weapon"]
+    equipped_armor = game_data["equipped_armor"]
+    path_bonuses, origin_entry, bloodline_entry = get_player_trait_bonuses(player)
+    total_stats = calculate_total_stats(base_stats, equipped_weapon, equipped_armor, path_bonuses)
+    rank_display, rank_letter = calculate_rank_from_stats(total_stats)
+    xp = db_get_xp(user_id)
+    next_realm_xp = get_xp_for_next_realm(player["realm_stage"])
+    progress_pct = int((xp / next_realm_xp) * 100) if next_realm_xp > 0 else 0
+    avatar_url = member.avatar.url if member.avatar else member.default_avatar.url
+    return {
+        "player": player,
+        "game_data": game_data,
+        "equipped_weapon": equipped_weapon,
+        "equipped_armor": equipped_armor,
+        "origin_entry": origin_entry,
+        "bloodline_entry": bloodline_entry,
+        "total_stats": total_stats,
+        "rank_display": rank_display,
+        "rank_letter": rank_letter,
+        "xp": xp,
+        "next_realm_xp": next_realm_xp,
+        "progress_pct": progress_pct,
+        "realm_display": get_realm_display(player["realm"], player["realm_stage"]),
+        "avatar_url": avatar_url,
+    }
+
+
+def profile_embed_base(member, ctx_data, title="Status Legend"):
+    embed = discord.Embed(
+        title=title,
+        description=f"Discord: **{member.display_name}**",
+        color=THEME_DARK,
+    )
+    embed.set_author(name=member.display_name, icon_url=ctx_data["avatar_url"])
+    embed.set_thumbnail(url=ctx_data["avatar_url"])
+    return embed
+
+
+def format_profile_path_line(label, entry):
+    if not entry:
+        return f"**{label}:** `None`"
+    return f"**{label}:** `{entry['name']}` - `{entry['rarity']}`"
+
+
+def format_equipped_item_line(label, item):
+    if not item:
+        return f"**{label}:** `None`"
+    icon = get_item_icon(item)
+    stats = ", ".join(f"{key} +{value}" for key, value in item.get("stats", {}).items()) or "No stats"
+    return f"{icon} **{label}:** `{item.get('rank', '?')}` **{get_item_display_name(item)}**\n`{stats}`"
+
+
+def build_profile_overview(member, ctx_data):
+    player = ctx_data["player"]
+    stats = ctx_data["total_stats"]
+    embed = profile_embed_base(member, ctx_data)
+    embed.add_field(
+        name="Overview",
+        value=(
+            f"**Evolution:** `{ctx_data['realm_display']}`\n"
+            f"**Gene Essence:** `{ctx_data['xp']:,}/{ctx_data['next_realm_xp']:,}` - `{ctx_data['progress_pct']}%`\n"
+            f"**Qi:** `{player['qi']:,}`\n"
+            f"**Gene Lock:** `Use !advance when ready`\n"
+            f"**Cultivator:** {member.mention}\n"
+            f"**Name:** `{player['character_name']}`"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Path",
+        value=(
+            f"{format_profile_path_line('Origin', ctx_data['origin_entry'])}\n"
+            f"{format_profile_path_line('Bloodline', ctx_data['bloodline_entry'])}"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name=f"Stats - Rank {ctx_data['rank_letter']}",
+        value=(
+            f"**ATK** `{stats['damage']}`  **HP** `{stats['hp']}`  **SPD** `{stats['speed']}`\n"
+            f"**LCK** `{stats['luck']}`  **QI** `{player['qi']}`  **DEF** `{stats['defense']}`\n"
+            f"**ARM** `{stats['armor']}`"
+        ),
+        inline=False,
+    )
+    path_icons_file = build_profile_path_icons_file(ctx_data["origin_entry"], ctx_data["bloodline_entry"], player["user_id"])
+    if path_icons_file:
+        embed.set_image(url=f"attachment://{path_icons_file.filename}")
+    embed.set_footer(text="Overview | Origin | Bloodline | Equipment | Inventory")
+    return embed, path_icons_file
+
+
+def build_profile_path_detail(member, ctx_data, entry_key, label):
+    entry = ctx_data[entry_key]
+    embed = profile_embed_base(member, ctx_data, f"{label} Details")
+    if not entry:
+        embed.add_field(name=label, value="`None selected`", inline=False)
+        embed.set_footer(text="Use !create to roll your path")
+        return embed, None
+
+    embed.add_field(name=label, value=f"`{entry['name']}` - `{entry['rarity']}`", inline=False)
+    embed.add_field(name="Lore", value=entry.get("description", "No description available."), inline=False)
+    embed.add_field(name="Stats", value=format_trait_bonuses_detailed(entry), inline=False)
+    embed.add_field(
+        name="Role",
+        value="Major active growth/combat identity with tradeoffs." if label == "Origin" else "Subtle long-term scaling with no downside.",
+        inline=False,
+    )
+    icon_file = get_trait_icon_file(entry)
+    if icon_file:
+        embed.set_image(url=f"attachment://{icon_file.filename}")
+    embed.set_footer(text=f"{label} ID: {entry.get('id', 'unknown')}")
+    return embed, icon_file
+
+
+def build_profile_equipment(member, ctx_data):
+    embed = profile_embed_base(member, ctx_data, "Equipment")
+    embed.add_field(
+        name="Equipped Gear",
+        value=(
+            f"{format_equipped_item_line('Weapon', ctx_data['equipped_weapon'])}\n\n"
+            f"{format_equipped_item_line('Armor', ctx_data['equipped_armor'])}"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Use !loadout to change equipped gear")
+    return embed, None
+
+
+def build_profile_inventory(member, ctx_data):
+    player = ctx_data["player"]
+    inventory_items = get_all_inventory_items(player["user_id"], player)
+    embed = profile_embed_base(member, ctx_data, "Inventory")
+    if not inventory_items:
+        embed.add_field(name="Items", value="`No gear in inventory yet.`", inline=False)
+    else:
+        lines = []
+        for index, item in enumerate(inventory_items[:12], 1):
+            lines.append(f"`{index:02}` {get_inventory_emoji_label(item)}")
+        if len(inventory_items) > 12:
+            lines.append(f"`+{len(inventory_items) - 12}` more items")
+        embed.add_field(name="Items", value="\n".join(lines), inline=False)
+    embed.set_footer(text="Use !inv for the full inventory view")
+    return embed, None
+
+
+class ProfileView(discord.ui.View):
+    def __init__(self, author_id):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+
+    async def _ensure_owner(self, interaction):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This profile panel belongs to another player.", ephemeral=True)
+            return False
+        return True
+
+    async def _show(self, interaction, builder):
+        if not await self._ensure_owner(interaction):
+            return
+        ctx_data = make_profile_context(str(self.author_id), interaction.user)
+        if not ctx_data:
+            await interaction.response.send_message("Could not refresh profile data.", ephemeral=True)
+            return
+        embed, file = builder(interaction.user, ctx_data)
+        await interaction.response.edit_message(embed=embed, attachments=[file] if file else [], view=self)
+
+    @discord.ui.button(label="Overview", style=discord.ButtonStyle.primary)
+    async def overview_button(self, interaction, button):
+        await self._show(interaction, build_profile_overview)
+
+    @discord.ui.button(label="Origin", style=discord.ButtonStyle.secondary)
+    async def origin_button(self, interaction, button):
+        await self._show(interaction, lambda member, data: build_profile_path_detail(member, data, "origin_entry", "Origin"))
+
+    @discord.ui.button(label="Bloodline", style=discord.ButtonStyle.secondary)
+    async def bloodline_button(self, interaction, button):
+        await self._show(interaction, lambda member, data: build_profile_path_detail(member, data, "bloodline_entry", "Bloodline"))
+
+    @discord.ui.button(label="Equipment", style=discord.ButtonStyle.secondary)
+    async def equipment_button(self, interaction, button):
+        await self._show(interaction, build_profile_equipment)
+
+    @discord.ui.button(label="Inventory", style=discord.ButtonStyle.secondary)
+    async def inventory_button(self, interaction, button):
+        await self._show(interaction, build_profile_inventory)
+
+
 @bot.command(name="profile")
 async def player_profile(ctx):
     """Show player profile with stats from equipment and traits."""
@@ -1635,10 +1863,8 @@ async def player_profile(ctx):
         )
         return
 
-    player = get_player(user_id)
-    game_data = get_player_game_data(user_id)
-
-    if not game_data:
+    ctx_data = make_profile_context(user_id, ctx.author)
+    if not ctx_data:
         await ctx.send(
             embed=build_embed(
                 "Data Error",
@@ -1648,105 +1874,12 @@ async def player_profile(ctx):
         )
         return
 
-    # Calculate total stats
-    base_stats = game_data["base_stats"]
-    equipped_weapon = game_data["equipped_weapon"]
-    equipped_armor = game_data["equipped_armor"]
-    
-    trait_bonuses, origin_entry, bloodline_entry = get_player_trait_bonuses(player)
-
-    total_stats = calculate_total_stats(base_stats, equipped_weapon, equipped_armor, trait_bonuses)
-    rank_display, rank_letter = calculate_rank_from_stats(total_stats)
-
-    realm_display = get_realm_display(player["realm"], player["realm_stage"])
-    origin_display = player.get("origin_name") or player.get("trait_name") or "None"
-    bloodline_display = player.get("bloodline_name") or "None"
-    if origin_entry:
-        origin_display = f"{origin_entry['name']} ({origin_entry['rarity']})"
-    if bloodline_entry:
-        bloodline_display = f"{bloodline_entry['name']} ({bloodline_entry['rarity']})"
-
-    # Build profile embed with user avatar
-    embed = discord.Embed(
-        title=f"🏯 Cultivator Profile",
-        description=build_anime_header("Your Cultivation Status"),
-        color=THEME_DARK,
-    )
-    
-    avatar_url = ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
-    embed.set_author(name=ctx.author.display_name, icon_url=avatar_url)
-    trait_icon_file = attach_trait_icon(embed, origin_entry, image=False) if origin_entry else None
-    if not trait_icon_file:
-        embed.set_thumbnail(url=avatar_url)
-    
-    xp = db_get_xp(user_id)
-    next_realm_xp = get_xp_for_next_realm(player["realm_stage"])
-    progress_pct = int((xp / next_realm_xp) * 100) if next_realm_xp > 0 else 0
-
-    # Identity row
-    embed.add_field(name="Cultivator", value=f"{ctx.author.mention}\n**{player['character_name']}**", inline=True)
-    embed.add_field(name="Realm", value=realm_display, inline=True)
-    embed.add_field(name="Rank", value=rank_display, inline=True)
-
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    embed.add_field(name="XP", value=f"{xp:,} / {next_realm_xp:,}", inline=True)
-    embed.add_field(name="Progress", value=f"{progress_pct}%", inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
-
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    embed.add_field(
-        name="Combat Stats",
-        value=(
-            f"**Damage** — {total_stats['damage']}\n"
-            f"**HP** — {total_stats['hp']}\n"
-            f"**Defense** — {total_stats['defense']}"
-        ),
-        inline=True
-    )
-    embed.add_field(
-        name="\u200b",
-        value=(
-            f"**Speed** — {total_stats['speed']}\n"
-            f"**Luck** — {total_stats['luck']}\n"
-            f"**Armor** — {total_stats['armor']}"
-        ),
-        inline=True
-    )
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
-
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    weapon_name = "None"
-    weapon_stats = ""
-    armor_name = "None"
-    armor_stats = ""
-
-    if equipped_weapon:
-        weapon_icon = WEAPON_RANK_EMOJI.get(equipped_weapon.get('rank', ''), '')
-        weapon_name = f"{weapon_icon} {equipped_weapon.get('rank')} {equipped_weapon.get('name')}"
-        weapon_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_weapon.get("stats", {}).items())
-    if equipped_armor:
-        armor_icon = ARMOR_RANK_EMOJI.get(equipped_armor.get('rank', ''), '')
-        armor_name = f"{armor_icon} {equipped_armor.get('rank')} {equipped_armor.get('name')}"
-        armor_stats = "\n" + ", ".join(f"{k} +{v}" for k, v in equipped_armor.get("stats", {}).items())
-
-    embed.add_field(name="Weapon", value=f"{weapon_name}{weapon_stats}", inline=True)
-    embed.add_field(name="Armor", value=f"{armor_name}{armor_stats}", inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
-
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    embed.add_field(name="Origin", value=origin_display, inline=True)
-    embed.add_field(name="Bloodline", value=bloodline_display, inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
-
-    embed.set_footer(text="!origin  |  !bloodline  |  !inv  |  !cd")
-    if trait_icon_file:
-        await ctx.send(embed=embed, file=trait_icon_file)
+    embed, file = build_profile_overview(ctx.author, ctx_data)
+    view = ProfileView(ctx.author.id)
+    if file:
+        await ctx.send(embed=embed, file=file, view=view)
     else:
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, view=view)
 
 
 @bot.command(name="gather")
@@ -1784,7 +1917,7 @@ async def gather_loot(ctx):
     add_gear_to_inventory(user_id, loot_items)
     add_wallet_currency(user_id, currency_earned)
     
-    # Add XP
+    # Add Gene Essence
     player = get_player(user_id)
     xp = get_xp(user_id)
     new_xp, new_realm, leveled_up = add_xp_game(xp, player["realm_stage"], xp_earned)
@@ -1799,10 +1932,10 @@ async def gather_loot(ctx):
 
     loot_text = "" if not loot_items else "\n".join([f"• {item['rank']} {item['type'].title()}: **{item['id']}**" for item in loot_items])
     loot_section = f"\n\nResources Absorbed:\n{loot_text}" if loot_text else ""
-    level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
+    level_up_msg = f"\n**Gene Lock Opened!** Now at lock {new_realm}." if leveled_up else ""
     
-    embed = discord.Embed(title="⛩️ Meditation Complete", color=THEME_GOLD)
-    embed.add_field(name="⚡ Spiritual Power", value=f"**+{xp_earned}** XP", inline=True)
+    embed = discord.Embed(title="Sanctuary Scavenge Complete", color=THEME_GOLD)
+    embed.add_field(name="Gene Essence", value=f"**+{xp_earned}**", inline=True)
     embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
     if level_up_msg:
         embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
@@ -1812,7 +1945,7 @@ async def gather_loot(ctx):
 
 @bot.command(name="hunt")
 async def hunt_loot(ctx):
-    """Cultivate through combat trials. Steady cultivation rewards."""
+    """Hunt creatures for stronger gene essence rewards."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -1845,7 +1978,7 @@ async def hunt_loot(ctx):
     add_gear_to_inventory(user_id, loot_items)
     add_wallet_currency(user_id, currency_earned)
     
-    # Add XP
+    # Add Gene Essence
     player = get_player(user_id)
     xp = get_xp(user_id)
     new_xp, new_realm, leveled_up = add_xp_game(xp, player["realm_stage"], xp_earned)
@@ -1859,10 +1992,10 @@ async def hunt_loot(ctx):
     update_cooldowns(user_id, cooldowns)
 
     loot_text = "\n".join([f"• {item['rank']} {item['type'].title()}: **{item['id']}**" for item in loot_items])
-    level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
+    level_up_msg = f"\n**Gene Lock Opened!** Now at lock {new_realm}." if leveled_up else ""
     
-    embed = discord.Embed(title="⛩️ Cultivation Trial Complete", color=THEME_GOLD)
-    embed.add_field(name="⚡ Spiritual Power", value=f"**+{xp_earned}** XP", inline=True)
+    embed = discord.Embed(title="Creature Hunt Complete", color=THEME_GOLD)
+    embed.add_field(name="Gene Essence", value=f"**+{xp_earned}**", inline=True)
     embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
     if level_up_msg:
         embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
@@ -1872,7 +2005,7 @@ async def hunt_loot(ctx):
 
 @bot.command(name="wander")
 async def wander_loot(ctx):
-    """Wander the lands. Rare chance at high-tier loot with medium-high XP."""
+    """Explore sanctuary ruins for essence and rare finds."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -1905,7 +2038,7 @@ async def wander_loot(ctx):
     add_gear_to_inventory(user_id, loot_items)
     add_wallet_currency(user_id, currency_earned)
     
-    # Add XP
+    # Add Gene Essence
     player = get_player(user_id)
     xp = get_xp(user_id)
     new_xp, new_realm, leveled_up = add_xp_game(xp, player["realm_stage"], xp_earned)
@@ -1919,12 +2052,12 @@ async def wander_loot(ctx):
     update_cooldowns(user_id, cooldowns)
 
     loot_text = "\n".join([f"• {item['rank']} {item['type'].title()}: **{item['id']}**" for item in loot_items])
-    level_up_msg = f"\n✨ **Realm Up!** Now at stage {new_realm}!" if leveled_up else ""
+    level_up_msg = f"\n**Gene Lock Opened!** Now at lock {new_realm}." if leveled_up else ""
     
     await ctx.send(
         embed=build_embed(
-            "� Forbidden Lands Traversed",
-            f"**+{xp_earned} Spiritual Power** | **+{currency_earned}** Spirit Coins\n\nLegendary Treasures:\n{loot_text}{level_up_msg}",
+            "Sanctuary Ruins Traversed",
+            f"**+{xp_earned} Gene Essence** | **+{currency_earned}** Spirit Coins\n\nFinds:\n{loot_text or 'No relics found.'}{level_up_msg}",
             THEME_GOLD,
         )
     )
@@ -1998,11 +2131,11 @@ class BattleTurnView(discord.ui.View):
 
     def _roll_rewards(self):
         if self.difficulty == "raid":
-            xp_earned = random.randint(100, 150)
+            xp_earned = random.randint(39, 66)
             currency_earned = random.randint(100, 250)
             loot_chance = 0.85
         else:
-            xp_earned = random.randint(40, 80)
+            xp_earned = random.randint(17, 33)
             currency_earned = random.randint(60, 150)
             loot_chance = 0.7
 
@@ -2025,11 +2158,11 @@ class BattleTurnView(discord.ui.View):
         if leveled_up and new_realm != self.player["realm_stage"]:
             update_player_realm(self.user_id, self.player["realm"], new_realm)
 
-        reward_lines = [f"XP **+{xp_earned}**", f"Spirit Coins **+{currency_earned}**"]
+        reward_lines = [f"Gene Essence **+{xp_earned}**", f"Spirit Coins **+{currency_earned}**"]
         if loot:
             reward_lines.append(f"Loot **{get_item_display_name(loot)} [{get_item_rank(loot)}]**")
         if leveled_up:
-            reward_lines.append(f"Realm Up: stage **{new_realm}**")
+            reward_lines.append(f"Gene Lock Opened: **{new_realm}**")
         return "\n".join(reward_lines)
 
     def _player_attack(self):
@@ -2539,16 +2672,16 @@ async def use_menu(ctx):
         value=f"`{format_hp_bar(max_health, max_health)}`\nCurrent fights start at full HP.",
         inline=False,
     )
-    embed.add_field(name="Level", value=f"{realm_display}\nXP **{xp:,}/{next_realm_xp:,}** ({progress_pct}%)", inline=True)
+    embed.add_field(name="Evolution", value=f"{realm_display}\nGene Essence **{xp:,}/{next_realm_xp:,}** ({progress_pct}%)", inline=True)
     embed.add_field(name="Rank", value=rank_display, inline=True)
     embed.add_field(name="Potions", value="No usable potions yet. Healing items will appear here once added.", inline=False)
     embed.set_footer(text="Future: !use potion will heal you when consumables are added")
     await ctx.send(embed=embed)
 
 
-@bot.command(name="level", aliases=["cult"])
+@bot.command(name="level", aliases=["cult", "gene"])
 async def show_level(ctx):
-    """Show current level/realm and XP progress."""
+    """Show current evolution and Gene Essence progress."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -2572,17 +2705,48 @@ async def show_level(ctx):
     filled = int((progress_pct / 100) * progress_bar_length)
     bar = "█" * filled + "░" * (progress_bar_length - filled)
 
-    embed = discord.Embed(title="Cultivation Progress", color=THEME_GOLD)
-    embed.add_field(name="Realm", value=realm_display, inline=True)
-    embed.add_field(name="Stage", value=str(player["realm_stage"]), inline=True)
-    embed.add_field(name="XP", value=f"**{xp:,}** / **{next_realm_xp:,}**", inline=True)
+    embed = discord.Embed(title="Gene Evolution Progress", color=THEME_GOLD)
+    embed.add_field(name="Evolution", value=realm_display, inline=True)
+    embed.add_field(name="Gene Lock", value=str(player["realm_stage"]), inline=True)
+    embed.add_field(name="Gene Essence", value=f"**{xp:,}** / **{next_realm_xp:,}**", inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(
         name="Progress",
         value=f"{bar}  **{progress_pct}%**",
         inline=False,
     )
-    embed.set_footer(text="Use !advance to attempt a breakthrough")
+    embed.set_footer(text="Use !advance to force open the next gene lock | Use !realm for the full ladder")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="realm", aliases=["realms", "evolution", "evolutions", "genepath"])
+async def show_realm_ladder(ctx):
+    """Show the full gene evolution ladder."""
+    user_id = str(ctx.author.id)
+    player = get_player(user_id) if player_exists(user_id) else None
+    current_index = player["realm_stage"] if player else 1
+
+    lines = []
+    for index, realm in enumerate(REALMS, 1):
+        marker = "->" if index == current_index else "  "
+        requirement = realm["qi_requirement"]
+        chance = realm["breakthrough_chance"]
+        lines.append(
+            f"{marker} **{index}. {realm['name']}**\n"
+            f"`Base Qi {requirement}` | `Base Evolution {chance}%`\n"
+            f"{realm['bonus']}"
+        )
+
+    embed = discord.Embed(
+        title="Gene Evolution Ladder",
+        description="Sanctuary progression from baseline human to deified gene core.",
+        color=THEME_GOLD,
+    )
+    first_half = "\n\n".join(lines[:5])
+    second_half = "\n\n".join(lines[5:])
+    embed.add_field(name="First Sanctuary Path", value=first_half, inline=False)
+    embed.add_field(name="Higher Sanctuary Path", value=second_half, inline=False)
+    embed.set_footer(text="Each rank has 9 gene locks. !level shows your current essence progress.")
     await ctx.send(embed=embed)
 
 

@@ -1,5 +1,5 @@
 """
-Core game systems: stats, combat, gear generation, XP progression
+Core game systems: stats, combat, gear generation, and gene essence progression.
 """
 import random
 import time
@@ -11,15 +11,15 @@ from typing import Dict, List, Tuple, Optional
 
 REALM_XP_THRESHOLDS = {
     1: 0,
-    2: 100,
-    3: 300,
-    4: 600,
-    5: 1000,
-    6: 1500,
-    7: 2100,
-    8: 2800,
-    9: 3600,
-    10: 4500,
+    2: 120,
+    3: 360,
+    4: 760,
+    5: 1320,
+    6: 2050,
+    7: 2960,
+    8: 4080,
+    9: 5400,
+    10: 7000,
 }
 
 # Gear rank -> base stat multipliers (factor for random range)
@@ -33,17 +33,17 @@ GEAR_RANK_STATS = {
     "F": {"min": 1, "max": 3, "luck": (0, 1), "speed": (0, 2), "armor": (0, 1)},
 }
 
-# Loot command rewards - FARMING HAS NO GEAR DROPS
+# Loot command rewards - essence comes from survival, hunts, and sanctuary exploration.
 LOOT_REWARDS = {
-    "gather": {"xp_range": (10, 25), "currency_range": (5, 15), "drop_gear": False},
-    "hunt": {"xp_range": (30, 60), "currency_range": (50, 120), "drop_gear": False},
-    "wander": {"xp_range": (50, 100), "currency_range": (25, 75), "drop_gear": False},
+    "gather": {"xp_range": (2, 5), "currency_range": (5, 15), "drop_gear": False},
+    "hunt": {"xp_range": (14, 27), "currency_range": (50, 120), "drop_gear": False},
+    "wander": {"xp_range": (8, 20), "currency_range": (25, 75), "drop_gear": False},
 }
 
 # Combat rewards
 COMBAT_REWARDS = {
-    "battle": {"xp_range": (40, 80), "currency_range": (60, 150), "loot_chance": 0.7},
-    "raid": {"xp_range": (100, 150), "currency_range": (100, 250), "loot_chance": 0.85},
+    "battle": {"xp_range": (17, 33), "currency_range": (60, 150), "loot_chance": 0.7},
+    "raid": {"xp_range": (39, 66), "currency_range": (100, 250), "loot_chance": 0.85},
 }
 
 # Trait bonuses by rarity
@@ -330,17 +330,17 @@ def battle(
 
 
 # ============================================================================
-# XP & LEVELING
+# GENE ESSENCE & EVOLUTION
 # ============================================================================
 
 
 def get_xp_for_next_realm(current_realm: int) -> int:
-    """Get total XP needed to reach next realm."""
+    """Get total gene essence needed to reach the next gene lock."""
     return REALM_XP_THRESHOLDS.get(current_realm + 1, 5000)
 
 
 def check_realm_up(current_xp: int, current_realm: int) -> Tuple[bool, int]:
-    """Check if player should level up, return (should_level_up, new_realm)."""
+    """Check if player should unlock a higher gene lock."""
     next_threshold = REALM_XP_THRESHOLDS.get(current_realm + 1)
     if next_threshold is not None and current_xp >= next_threshold:
         # Find new realm
@@ -352,7 +352,7 @@ def check_realm_up(current_xp: int, current_realm: int) -> Tuple[bool, int]:
 
 def add_xp(current_xp: int, current_realm: int, xp_gained: int) -> Tuple[int, int, bool]:
     """
-    Add XP and check for realm up.
+    Add gene essence and check for evolution progress.
     Returns: (new_xp, new_realm, leveled_up)
     """
     new_xp = current_xp + xp_gained

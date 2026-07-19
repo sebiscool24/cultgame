@@ -46,7 +46,7 @@ def initialize_database():
             character_name TEXT,
             cult_ego INTEGER NOT NULL DEFAULT 1,
             qi INTEGER NOT NULL DEFAULT 0,
-            realm TEXT NOT NULL DEFAULT 'Mortal Path',
+            realm TEXT NOT NULL DEFAULT 'Unmutated Gene',
             realm_stage INTEGER NOT NULL DEFAULT 1,
             selected_trait TEXT,
             trait_name TEXT,
@@ -71,7 +71,7 @@ def initialize_database():
     _add_column_if_missing(cursor, "character_name", "TEXT")
     _add_column_if_missing(cursor, "cult_ego", "INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(cursor, "qi", "INTEGER NOT NULL DEFAULT 0")
-    _add_column_if_missing(cursor, "realm", "TEXT NOT NULL DEFAULT 'Mortal Path'")
+    _add_column_if_missing(cursor, "realm", "TEXT NOT NULL DEFAULT 'Unmutated Gene'")
     _add_column_if_missing(cursor, "realm_stage", "INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(cursor, "selected_trait", "TEXT")
     _add_column_if_missing(cursor, "trait_name", "TEXT")
@@ -123,7 +123,7 @@ def create_player(user_id, username):
                 username,
                 1,
                 0,
-                "Mortal Path",
+                "Unmutated Gene",
                 1,
                 None,
                 None,

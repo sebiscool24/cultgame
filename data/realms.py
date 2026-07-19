@@ -1,18 +1,32 @@
 REALMS = [
-    {"name": "Mortal Path", "bonus": "No bonuses", "qi_requirement": 80, "breakthrough_chance": 95},
-    {"name": "Awakened Body", "bonus": "Small physical stat increase", "qi_requirement": 160, "breakthrough_chance": 85},
-    {"name": "Spirit Vessel", "bonus": "Increased Qi gain", "qi_requirement": 280, "breakthrough_chance": 78},
-    {"name": "Core Forging", "bonus": "Unlocks stronger progression bonuses", "qi_requirement": 440, "breakthrough_chance": 70},
-    {"name": "Astral Domain", "bonus": "Higher Cult Ego growth", "qi_requirement": 640, "breakthrough_chance": 60},
-    {"name": "Heavenly Soul", "bonus": "Improved breakthrough chances", "qi_requirement": 880, "breakthrough_chance": 50},
-    {"name": "Dao Walker", "bonus": "Unlock future ability interactions", "qi_requirement": 1160, "breakthrough_chance": 40},
-    {"name": "Celestial Monarch", "bonus": "Strong status bonuses", "qi_requirement": 1480, "breakthrough_chance": 30},
-    {"name": "Immortal Sovereign", "bonus": "Endgame-level progression", "qi_requirement": 1840, "breakthrough_chance": 20},
-    {"name": "Godworthy Existence", "bonus": "Extremely difficult final realm", "qi_requirement": 2240, "breakthrough_chance": 10},
+    {"name": "Unmutated Gene", "bonus": "Baseline human body; begin collecting gene essence", "qi_requirement": 80, "breakthrough_chance": 95},
+    {"name": "Primitive Mutant", "bonus": "Small body and instinct increase", "qi_requirement": 160, "breakthrough_chance": 85},
+    {"name": "Mutant Genome", "bonus": "Improved essence absorption", "qi_requirement": 280, "breakthrough_chance": 78},
+    {"name": "Sacred-Blood Genome", "bonus": "Unlocks stronger mutation bonuses", "qi_requirement": 440, "breakthrough_chance": 70},
+    {"name": "First Sanctuary Evolver", "bonus": "Higher gene core growth", "qi_requirement": 640, "breakthrough_chance": 60},
+    {"name": "Second Sanctuary Evolver", "bonus": "Improved evolution stability", "qi_requirement": 880, "breakthrough_chance": 50},
+    {"name": "Super Gene Noble", "bonus": "Unlock future geno-art interactions", "qi_requirement": 1160, "breakthrough_chance": 40},
+    {"name": "King-Class Genome", "bonus": "Strong sanctuary status bonuses", "qi_requirement": 1480, "breakthrough_chance": 30},
+    {"name": "Emperor-Class Genome", "bonus": "Endgame-level evolution pressure", "qi_requirement": 1840, "breakthrough_chance": 20},
+    {"name": "Deified Gene Core", "bonus": "Extremely difficult final evolution", "qi_requirement": 2240, "breakthrough_chance": 10},
 ]
+
+LEGACY_REALM_ALIASES = {
+    "Mortal Path": "Unmutated Gene",
+    "Awakened Body": "Primitive Mutant",
+    "Spirit Vessel": "Mutant Genome",
+    "Core Forging": "Sacred-Blood Genome",
+    "Astral Domain": "First Sanctuary Evolver",
+    "Heavenly Soul": "Second Sanctuary Evolver",
+    "Dao Walker": "Super Gene Noble",
+    "Celestial Monarch": "King-Class Genome",
+    "Immortal Sovereign": "Emperor-Class Genome",
+    "Godworthy Existence": "Deified Gene Core",
+}
 
 
 def get_realm_index(realm_name):
+    realm_name = LEGACY_REALM_ALIASES.get(realm_name, realm_name)
     for index, realm in enumerate(REALMS):
         if realm["name"] == realm_name:
             return index
@@ -43,4 +57,5 @@ def get_progression_requirement(realm_name, stage):
 
 
 def get_realm_display(realm_name, stage):
-    return f"{realm_name} Stage {stage}/9"
+    realm_name = LEGACY_REALM_ALIASES.get(realm_name, realm_name)
+    return f"{realm_name} Gene Lock {stage}/9"
