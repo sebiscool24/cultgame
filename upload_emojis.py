@@ -1,5 +1,5 @@
 """
-Re-upload script: removes blue background, auto-centers each sprite, re-uploads.
+Re-upload script: cuts equipment icons, removes sheet backgrounds, auto-centers each sprite, re-uploads.
 """
 
 import asyncio
@@ -10,60 +10,55 @@ from PIL import Image
 import numpy as np
 
 SHEET_CONFIGS = {
-    "weapons1": {
-        "file": "assets/weapons1.webp",
-        "cols": 10, "rows": 6,
-        "start_x": 145, "start_y": 115,
-        "cell_w": 132, "cell_h": 130,
-    },
-    "armor": {
-        "file": "assets/armor.webp",
-        "cols": 9, "rows": 6,
-        "start_x": 249, "start_y": 127,
-        "cell_w": 107, "cell_h": 107,
-        "step_x": 125, "step_y": 127,
-        "content_scale": 1.10,
+    "equipment": {
+        "file": "assets/equipment_icons_sheet.png",
+        "base_size": 1024,
+        "x_centers": [137, 205],
+        "weapon_y": [75, 151, 226, 302, 377, 453],
+        "armor_y": [586, 662, 738, 814, 890, 966],
+        "cell": 70,
+        "content_scale": 1.0,
     },
 }
 
 WEAPON_RANK_SPRITES = {
-    "F":  ("weapons1", 0, 0),
-    "E":  ("weapons1", 0, 1),
-    "D-": ("weapons1", 0, 2),
-    "D":  ("weapons1", 0, 3),
-    "D+": ("weapons1", 0, 4),
-    "C-": ("weapons1", 0, 5),
-    "C":  ("weapons1", 1, 0),
-    "C+": ("weapons1", 1, 1),
-    "B-": ("weapons1", 1, 3),
-    "B":  ("weapons1", 2, 0),
-    "B+": ("weapons1", 2, 3),
-    "A-": ("weapons1", 2, 4),
+    "F":  ("equipment", "weapon", 0, 0),
+    "E":  ("equipment", "weapon", 0, 1),
+    "D-": ("equipment", "weapon", 1, 0),
+    "D":  ("equipment", "weapon", 1, 1),
+    "D+": ("equipment", "weapon", 2, 0),
+    "C-": ("equipment", "weapon", 2, 1),
+    "C":  ("equipment", "weapon", 3, 0),
+    "C+": ("equipment", "weapon", 3, 1),
+    "B-": ("equipment", "weapon", 4, 0),
+    "B":  ("equipment", "weapon", 4, 1),
+    "B+": ("equipment", "weapon", 5, 0),
+    "A-": ("equipment", "weapon", 5, 1),
 }
 
 ARMOR_RANK_SPRITES = {
-    "F":  ("armor", 0, 0),
-    "E":  ("armor", 0, 1),
-    "D-": ("armor", 0, 2),
-    "D":  ("armor", 0, 3),
-    "D+": ("armor", 0, 4),
-    "C-": ("armor", 1, 0),
-    "C":  ("armor", 1, 5),
-    "C+": ("armor", 1, 6),
-    "B-": ("armor", 2, 1),
-    "B":  ("armor", 2, 2),
-    "B+": ("armor", 2, 5),
-    "A-": ("armor", 4, 6),
+    "F":  ("equipment", "armor", 0, 0),
+    "E":  ("equipment", "armor", 0, 1),
+    "D-": ("equipment", "armor", 1, 0),
+    "D":  ("equipment", "armor", 1, 1),
+    "D+": ("equipment", "armor", 2, 0),
+    "C-": ("equipment", "armor", 2, 1),
+    "C":  ("equipment", "armor", 3, 0),
+    "C+": ("equipment", "armor", 3, 1),
+    "B-": ("equipment", "armor", 4, 0),
+    "B":  ("equipment", "armor", 4, 1),
+    "B+": ("equipment", "armor", 5, 0),
+    "A-": ("equipment", "armor", 5, 1),
 }
 
 
 def remove_background(img):
-    """Remove the blue background and replace with transparency."""
+    """Remove edge-connected dark sheet background and replace with transparency."""
     img = img.convert("RGBA")
     data = np.array(img)
     r, g, b, a = data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3]
-    # Blue background is roughly R<160, G>160, B>200
-    bg_mask = (r < 170) & (g > 160) & (b > 180) & (b > r + 30)
+    brightness = (r.astype(int) + g.astype(int) + b.astype(int)) / 3
+    bg_mask = (brightness < 50) & (a > 0)
 
     height, width = bg_mask.shape
     edge_bg = np.zeros_like(bg_mask, dtype=bool)
@@ -95,26 +90,81 @@ def remove_background(img):
             stack.append((y, x + 1))
 
     data[edge_bg] = [0, 0, 0, 0]
+    alpha = data[:,:,3]
+    alpha[(brightness < 30) & (alpha > 0)] = 0
+    data[:,:,3] = alpha
     return Image.fromarray(data)
 
 
-def cut_sprite(sheet_name, row, col):
+def remove_corner_fragments(img):
+    """Remove small neighbor fragments while keeping detached sprite details."""
+    img = img.convert("RGBA")
+    data = np.array(img)
+    alpha = data[:,:,3]
+    mask = alpha > 0
+    height, width = mask.shape
+    seen = np.zeros_like(mask, dtype=bool)
+    components = []
+
+    for start_y in range(height):
+        for start_x in range(width):
+            if seen[start_y, start_x] or not mask[start_y, start_x]:
+                continue
+            stack = [(start_y, start_x)]
+            seen[start_y, start_x] = True
+            pixels = []
+            while stack:
+                y, x = stack.pop()
+                pixels.append((y, x))
+                for next_y in range(max(0, y - 1), min(height, y + 2)):
+                    for next_x in range(max(0, x - 1), min(width, x + 2)):
+                        if not seen[next_y, next_x] and mask[next_y, next_x]:
+                            seen[next_y, next_x] = True
+                            stack.append((next_y, next_x))
+            components.append(pixels)
+
+    if not components:
+        return img
+
+    min_area = max(10, int(height * width * 0.0015))
+    keep = np.zeros_like(mask, dtype=bool)
+    for component in components:
+        area = len(component)
+        min_y = min(pixel[0] for pixel in component)
+        max_y = max(pixel[0] for pixel in component)
+        min_x = min(pixel[1] for pixel in component)
+        max_x = max(pixel[1] for pixel in component)
+        touches_corner = (
+            (min_y <= 1 and min_x <= 1) or
+            (min_y <= 1 and max_x >= width - 2) or
+            (max_y >= height - 2 and min_x <= 1) or
+            (max_y >= height - 2 and max_x >= width - 2)
+        )
+        if area >= min_area and not touches_corner:
+            for y, x in component:
+                keep[y, x] = True
+
+    data[~keep] = [0, 0, 0, 0]
+    return Image.fromarray(data)
+
+
+def cut_sprite(sheet_name, item_type, row, col):
     cfg = SHEET_CONFIGS[sheet_name]
     img = Image.open(cfg["file"]).convert("RGBA")
 
-    x = cfg["start_x"] + col * cfg.get("step_x", cfg["cell_w"])
-    y = cfg["start_y"] + row * cfg.get("step_y", cfg["cell_h"])
-    sprite = img.crop((x, y, x + cfg["cell_w"], y + cfg["cell_h"]))
+    scale = img.width / cfg["base_size"]
+    center_x = round(cfg["x_centers"][col] * scale)
+    center_y = round(cfg[f"{item_type}_y"][row] * scale)
+    half = round((cfg["cell"] * scale) / 2)
+    sprite = img.crop((center_x - half, center_y - half, center_x + half, center_y + half))
 
-    # Remove blue background
     sprite = remove_background(sprite)
+    sprite = remove_corner_fragments(sprite)
 
-    # Auto-crop to content bounding box, then pad to square
     bbox = sprite.getbbox()
     if bbox:
         sprite = sprite.crop(bbox)
 
-    # Pad to square with transparent border, then fill more of the emoji frame.
     output_size = 64
     content_scale = cfg.get("content_scale", 1.0)
     target_size = min(output_size, int(output_size * content_scale))
@@ -183,9 +233,9 @@ async def main():
             **armor_sprites,
         }
 
-        for emoji_name, (sheet, row, col) in all_sprites.items():
+        for emoji_name, (sheet, item_type, row, col) in all_sprites.items():
             try:
-                image_data = cut_sprite(sheet, row, col)
+                image_data = cut_sprite(sheet, item_type, row, col)
                 emoji = await guild.create_custom_emoji(name=emoji_name, image=image_data)
                 uploaded[emoji_name] = str(emoji)
                 print(f"  Uploaded: {emoji_name} -> {emoji}")

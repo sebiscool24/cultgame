@@ -354,6 +354,121 @@ def _assign_trait_icons(traits):
 
 TRAITS = _assign_trait_icons(_augment_trait_powers(TRAITS))
 
+ORIGIN_TRADEOFFS = {
+    "attack_percent": {"defense_percent": -8},
+    "damage_percent": {"defense_percent": -8},
+    "defense_percent": {"attack_percent": -7},
+    "hp_percent": {"dodge_chance_percent": -5},
+    "qi_gain_percent": {"hp_percent": -6},
+    "cultivation_speed_percent": {"defense_percent": -6},
+    "critical_chance_percent": {"hp_percent": -5},
+    "dodge_chance_percent": {"attack_percent": -5},
+    "luck_percent": {"defense_percent": -5},
+}
+
+BLOODLINE_LONG_TERM_PACKS = {
+    "Common": {"qi_gain_percent": 1, "loot_luck_percent": 1},
+    "Uncommon": {"qi_gain_percent": 2, "loot_luck_percent": 1},
+    "Normal": {"qi_gain_percent": 3, "luck_percent": 2, "loot_luck_percent": 2},
+    "Great": {"qi_gain_percent": 4, "luck_percent": 3, "loot_luck_percent": 3},
+    "Amazing": {"qi_gain_percent": 6, "luck_percent": 4, "loot_luck_percent": 5},
+    "Legendary": {"qi_gain_percent": 8, "luck_percent": 6, "loot_luck_percent": 7, "breakthrough_reward_bonus_percent": 4},
+    "Celestial": {"qi_gain_percent": 10, "luck_percent": 8, "loot_luck_percent": 9, "breakthrough_reward_bonus_percent": 6},
+    "Godworthy": {"qi_gain_percent": 14, "luck_percent": 11, "loot_luck_percent": 12, "breakthrough_reward_bonus_percent": 9},
+    "Empyrean": {"qi_gain_percent": 18, "luck_percent": 14, "loot_luck_percent": 15, "breakthrough_reward_bonus_percent": 12, "fate_anchor_percent": 8},
+}
+
+
+def _numbered_id(prefix, trait):
+    rarity, number = trait["id"].split("_", 1)
+    return f"{prefix}_{rarity}_{number}"
+
+
+def _scale_numeric_bonuses(bonuses, scale, *, minimum=1):
+    scaled = {}
+    for key, value in bonuses.items():
+        if isinstance(value, bool):
+            scaled[key] = value
+        elif isinstance(value, (int, float)):
+            amount = int(value * scale)
+            if value > 0:
+                amount = max(minimum, amount)
+            scaled[key] = amount
+        else:
+            scaled[key] = value
+    return scaled
+
+
+def _origin_tradeoff_for(bonuses, rarity):
+    numeric = {key: value for key, value in bonuses.items() if isinstance(value, (int, float)) and value > 0}
+    if not numeric:
+        return {"luck_percent": -3}
+
+    main_key = max(numeric, key=numeric.get)
+    base_tradeoff = ORIGIN_TRADEOFFS.get(main_key, {"luck_percent": -4})
+    rarity_scale = {
+        "Common": 0.5,
+        "Uncommon": 0.7,
+        "Normal": 0.9,
+        "Great": 1.0,
+        "Amazing": 1.15,
+        "Legendary": 1.3,
+        "Celestial": 1.45,
+        "Godworthy": 1.65,
+        "Empyrean": 1.9,
+    }.get(rarity, 1.0)
+    return {key: int(value * rarity_scale) for key, value in base_tradeoff.items()}
+
+
+def _make_origin_pool(traits):
+    origins = []
+    for trait in traits:
+        bonuses = _merge_bonuses(
+            _scale_numeric_bonuses(trait.get("bonuses", {}), 1.35),
+            _origin_tradeoff_for(trait.get("bonuses", {}), trait["rarity"]),
+        )
+        origins.append(
+            dict(
+                trait,
+                id=_numbered_id("origin", trait),
+                name=f"{trait['name']} Origin",
+                description=(
+                    f"An origin path born from {trait['name']}. It heavily shapes combat and growth, "
+                    "but its power demands a price."
+                ),
+                bonuses=bonuses,
+                kind="Origin",
+            )
+        )
+    return origins
+
+
+def _make_bloodline_pool(traits):
+    bloodlines = []
+    for trait in traits:
+        bonuses = _merge_bonuses(
+            _scale_numeric_bonuses(trait.get("bonuses", {}), 0.32),
+            BLOODLINE_LONG_TERM_PACKS.get(trait["rarity"], {}),
+        )
+        bloodlines.append(
+            dict(
+                trait,
+                id=_numbered_id("bloodline", trait),
+                name=f"{trait['name']} Bloodline",
+                description=(
+                    f"A subtle inherited current related to {trait['name']}. It grows quietly through luck, "
+                    "resources, and long-term cultivation."
+                ),
+                bonuses=bonuses,
+                kind="Bloodline",
+            )
+        )
+    return bloodlines
+
+
+ORIGINS = _make_origin_pool(TRAITS)
+BLOODLINES = _make_bloodline_pool(TRAITS)
+
 RARITY_WEIGHTS = {
     "Common": 45,
     "Uncommon": 25,
@@ -373,3 +488,19 @@ def get_traits_by_rarity(rarity):
 
 def get_trait_pool():
     return TRAITS
+
+
+def get_origins_by_rarity(rarity):
+    return [origin for origin in ORIGINS if origin["rarity"] == rarity]
+
+
+def get_origin_pool():
+    return ORIGINS
+
+
+def get_bloodlines_by_rarity(rarity):
+    return [bloodline for bloodline in BLOODLINES if bloodline["rarity"] == rarity]
+
+
+def get_bloodline_pool():
+    return BLOODLINES

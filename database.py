@@ -50,6 +50,10 @@ def initialize_database():
             realm_stage INTEGER NOT NULL DEFAULT 1,
             selected_trait TEXT,
             trait_name TEXT,
+            selected_origin TEXT,
+            origin_name TEXT,
+            selected_bloodline TEXT,
+            bloodline_name TEXT,
             inventory TEXT NOT NULL DEFAULT '[]',
             abilities TEXT NOT NULL DEFAULT 'None',
             clan TEXT NOT NULL DEFAULT 'None',
@@ -71,6 +75,10 @@ def initialize_database():
     _add_column_if_missing(cursor, "realm_stage", "INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(cursor, "selected_trait", "TEXT")
     _add_column_if_missing(cursor, "trait_name", "TEXT")
+    _add_column_if_missing(cursor, "selected_origin", "TEXT")
+    _add_column_if_missing(cursor, "origin_name", "TEXT")
+    _add_column_if_missing(cursor, "selected_bloodline", "TEXT")
+    _add_column_if_missing(cursor, "bloodline_name", "TEXT")
     _add_column_if_missing(cursor, "inventory", "TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(cursor, "abilities", "TEXT NOT NULL DEFAULT 'None'")
     _add_column_if_missing(cursor, "clan", "TEXT NOT NULL DEFAULT 'None'")
@@ -145,7 +153,8 @@ def get_player(user_id):
         """
         SELECT user_id, username, character_name, cult_ego, qi, realm, realm_stage,
                selected_trait, trait_name, inventory, abilities, clan, trait_rolls_left,
-               starter_rolls_left, starter_weapon, starter_armor, starter_items
+             starter_rolls_left, starter_weapon, starter_armor, starter_items,
+             selected_origin, origin_name, selected_bloodline, bloodline_name
         FROM players WHERE user_id = ?
         """,
         (str(user_id),),
@@ -176,6 +185,10 @@ def get_player(user_id):
         "starter_armor": row[15],
         "starter_items": row[16],
         "starter_items_list": _parse_json_list(row[16]),
+        "selected_origin": row[17] or row[7],
+        "origin_name": row[18] or row[8],
+        "selected_bloodline": row[19],
+        "bloodline_name": row[20],
     }
 
 
@@ -201,6 +214,34 @@ def update_player_trait(user_id, trait_id, trait_name):
     cursor.execute(
         "UPDATE players SET selected_trait = ?, trait_name = ? WHERE user_id = ?",
         (trait_id, trait_name, str(user_id)),
+    )
+    connection.commit()
+    connection.close()
+
+
+def update_player_origin(user_id, origin_id, origin_name):
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE players
+        SET selected_origin = ?, origin_name = ?, selected_trait = ?, trait_name = ?
+        WHERE user_id = ?
+        """,
+        (origin_id, origin_name, origin_id, origin_name, str(user_id)),
+    )
+    connection.commit()
+    connection.close()
+
+
+def update_player_bloodline(user_id, bloodline_id, bloodline_name):
+    connection = sqlite3.connect(DB_PATH)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "UPDATE players SET selected_bloodline = ?, bloodline_name = ? WHERE user_id = ?",
+        (bloodline_id, bloodline_name, str(user_id)),
     )
     connection.commit()
     connection.close()

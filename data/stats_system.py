@@ -124,6 +124,8 @@ def calculate_total_stats(base_stats, equipped_weapon=None, equipped_armor=None,
                     bonus_amount = int(total[stat_key] * value / 100)
                     if value > 0:
                         bonus_amount = max(1, bonus_amount)
+                    elif value < 0:
+                        bonus_amount = min(-1, bonus_amount)
                     total[stat_key] += bonus_amount
                 elif key in combat_bonus_keys:
                     total[key] = total.get(key, 0) + value

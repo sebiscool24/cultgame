@@ -9,7 +9,7 @@ from discord.ext import commands
 
 from data.realms import get_breakthrough_chance, get_next_realm, get_progression_requirement, get_realm_bonus, get_realm_display
 from data.starter_items import STARTER_ITEM_RANK_CHANCES, get_item_pool, get_rank_chances
-from data.traits import RARITY_WEIGHTS, get_trait_pool
+from data.traits import RARITY_WEIGHTS, get_bloodline_pool, get_bloodlines_by_rarity, get_origin_pool, get_origins_by_rarity, get_trait_pool
 from data.stats_system import calculate_total_stats
 from data.game_systems import generate_loot, battle as battle_system, add_xp as add_xp_game, set_cooldown, get_cooldown_remaining
 from game_db_functions import (
@@ -43,7 +43,8 @@ from database import (
     spend_qi,
     spend_trait_roll,
     update_player_realm,
-    update_player_trait,
+    update_player_bloodline,
+    update_player_origin,
     use_starter_roll,
 )
 
@@ -56,39 +57,39 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# In-memory pending trait rolls. A trait is only saved after pressing Confirm.
+# In-memory pending rolls. Rolls are only saved after pressing Confirm in standalone roll panels.
 PENDING_TRAIT_ROLLS = {}
 WEAPON_EMOJI = "Weapon"
 ARMOR_EMOJI = "Armor"
 
 WEAPON_RANK_EMOJI = {
-    "F":  "<:w_F:1528145287246512128>",
-    "E":  "<:w_E:1528145290308092017>",
-    "D-": "<:w_Dm:1528145293856473119>",
-    "D":  "<:w_D:1528145297140617307>",
-    "D+": "<:w_Dp:1528145300747718818>",
-    "C-": "<:w_Cm:1528145304195694612>",
-    "C":  "<:w_C:1528145307404337345>",
-    "C+": "<:w_Cp:1528145319949369524>",
-    "B-": "<:w_Bm:1528145322763747362>",
-    "B":  "<:w_B:1528145326417117194>",
-    "B+": "<:w_Bp:1528145329600462868>",
-    "A-": "<:w_Am:1528145332859441222>",
+    "F":  "<:w_F:1528216512417108040>",
+    "E":  "<:w_E:1528216515327950880>",
+    "D-": "<:w_Dm:1528216518297387072>",
+    "D":  "<:w_D:1528216521590051000>",
+    "D+": "<:w_Dp:1528216525276971118>",
+    "C-": "<:w_Cm:1528216529164963960>",
+    "C":  "<:w_C:1528216532469944460>",
+    "C+": "<:w_Cp:1528216535770857472>",
+    "B-": "<:w_Bm:1528216539264979016>",
+    "B":  "<:w_B:1528216543110889615>",
+    "B+": "<:w_Bp:1528216547011858432>",
+    "A-": "<:w_Am:1528216550463508542>",
 }
 
 ARMOR_RANK_EMOJI = {
-    "F":  "<:a_F:1528158679826825266>",
-    "E":  "<:a_E:1528158683337588748>",
-    "D-": "<:a_Dm:1528158686785044491>",
-    "D":  "<:a_D:1528158690367246366>",
-    "D+": "<:a_Dp:1528158693601050836>",
-    "C-": "<:a_Cm:1528158696570486929>",
-    "C":  "<:a_C:1528158700286640128>",
-    "C+": "<:a_Cp:1528158703792951388>",
-    "B-": "<:a_Bm:1528158708117540975>",
-    "B":  "<:a_B:1528158712580014251>",
-    "B+": "<:a_Bp:1528158716258681002>",
-    "A-": "<:a_Am:1528158719718723774>",
+    "F":  "<:a_F:1528216554142044281>",
+    "E":  "<:a_E:1528216557241634879>",
+    "D-": "<:a_Dm:1528216560995664046>",
+    "D":  "<:a_D:1528216564699103262>",
+    "D+": "<:a_Dp:1528216568478171227>",
+    "C-": "<:a_Cm:1528216572320026714>",
+    "C":  "<:a_C:1528216575344115914>",
+    "C+": "<:a_Cp:1528216578292715612>",
+    "B-": "<:a_Bm:1528216582143344867>",
+    "B":  "<:a_B:1528216586022813726>",
+    "B+": "<:a_Bp:1528216589084659943>",
+    "A-": "<:a_Am:1528216592171798738>",
 }
 
 
@@ -102,7 +103,7 @@ def get_item_icon(item):
     return ""
 
 # Commands that do NOT require a character to be created yet
-NO_CHARACTER_COMMANDS = {"create", "ping", "help"}
+NO_CHARACTER_COMMANDS = {"create", "ping", "help", "originhelp", "orginhelp", "ogrinhelp", "bloodlinehelp", "traithelp"}
 
 @bot.before_invoke
 async def require_character(ctx):
@@ -215,11 +216,21 @@ def format_trait_bonuses(bonuses):
         f"{get_trait_bonus_label(key)}"
         if isinstance(value, bool)
         else
-        f"{get_trait_bonus_label(key)} +{value}%"
+        f"{get_trait_bonus_label(key)} {value:+}%"
         if isinstance(value, (int, float))
         else f"{get_trait_bonus_label(key)}"
         for key, value in bonuses.items()
     )
+
+
+def find_entry_by_name(pool, entry_name):
+    if not entry_name:
+        return None
+
+    for entry in pool:
+        if entry.get("name") == entry_name:
+            return entry
+    return None
 
 
 def get_selected_starter_names(player):
@@ -271,33 +282,56 @@ def get_inventory_emoji_label(item):
 
 
 def find_trait_by_name(trait_name):
-    if not trait_name:
-        return None
+    return find_entry_by_name(get_trait_pool(), trait_name)
 
-    for trait in get_trait_pool():
-        if trait.get("name") == trait_name:
-            return trait
-    return None
+
+def find_origin_by_name(origin_name):
+    return find_entry_by_name(get_origin_pool(), origin_name) or find_trait_by_name(origin_name)
+
+
+def find_bloodline_by_name(bloodline_name):
+    return find_entry_by_name(get_bloodline_pool(), bloodline_name)
 
 
 def get_player_trait_bonuses(player):
-    trait_entry = find_trait_by_name(player.get("trait_name"))
-    if not trait_entry:
-        return {}, None
-    return trait_entry.get("bonuses", {}), trait_entry
+    origin_entry = find_origin_by_name(player.get("origin_name") or player.get("trait_name"))
+    bloodline_entry = find_bloodline_by_name(player.get("bloodline_name"))
+    combined = {}
+    for entry in (origin_entry, bloodline_entry):
+        if not entry:
+            continue
+        for key, value in entry.get("bonuses", {}).items():
+            if isinstance(value, bool):
+                combined[key] = combined.get(key, False) or value
+            elif isinstance(value, (int, float)):
+                combined[key] = combined.get(key, 0) + value
+            else:
+                combined[key] = value
+    return combined, origin_entry, bloodline_entry
 
 
 def roll_random_trait():
-    traits = get_trait_pool()
+    return roll_random_from_pool(get_trait_pool())
+
+
+def roll_random_from_pool(pool):
     rarity = random.choices(
         list(RARITY_WEIGHTS.keys()),
         weights=[RARITY_WEIGHTS[r] for r in RARITY_WEIGHTS.keys()],
         k=1,
     )[0]
-    filtered = [trait for trait in traits if trait["rarity"] == rarity]
+    filtered = [entry for entry in pool if entry["rarity"] == rarity]
     if not filtered:
         return None
     return random.choice(filtered)
+
+
+def roll_random_origin():
+    return roll_random_from_pool(get_origin_pool())
+
+
+def roll_random_bloodline():
+    return roll_random_from_pool(get_bloodline_pool())
 
 
 def build_trait_roll_message(trait, rolls_left):
@@ -321,6 +355,36 @@ def build_trait_roll_embed(trait, rolls_left, status_line):
     embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
     embed.add_field(name="Lore", value=trait["description"], inline=False)
     embed.add_field(name="Blessings", value=format_trait_bonuses(trait["bonuses"]), inline=False)
+    embed.set_footer(text=status_line)
+    return embed
+
+
+def build_origin_roll_embed(origin, rolls_left, status_line):
+    embed = discord.Embed(
+        title="Origin Roll",
+        description=build_anime_header("Origin Awakening"),
+        color=THEME_GOLD,
+    )
+    embed.add_field(name="Origin", value=f"**{origin['name']}**", inline=True)
+    embed.add_field(name="Rarity", value=origin["rarity"], inline=True)
+    embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
+    embed.add_field(name="Path", value=origin["description"], inline=False)
+    embed.add_field(name="Active Effects", value=format_trait_bonuses(origin["bonuses"]), inline=False)
+    embed.set_footer(text=status_line)
+    return embed
+
+
+def build_bloodline_roll_embed(bloodline, rolls_left, status_line):
+    embed = discord.Embed(
+        title="Bloodline Roll",
+        description=build_anime_header("Bloodline Inheritance"),
+        color=THEME_CRIMSON,
+    )
+    embed.add_field(name="Bloodline", value=f"**{bloodline['name']}**", inline=True)
+    embed.add_field(name="Rarity", value=bloodline["rarity"], inline=True)
+    embed.add_field(name="Rolls Left", value=str(rolls_left), inline=True)
+    embed.add_field(name="Inheritance", value=bloodline["description"], inline=False)
+    embed.add_field(name="Long-Term Effects", value=format_trait_bonuses(bloodline["bonuses"]), inline=False)
     embed.set_footer(text=status_line)
     return embed
 
@@ -378,6 +442,22 @@ def roll_starter_candidate(user_id):
     return item_summary, roll_number, rolls_left
 
 
+def roll_bloodline_candidate(user_id):
+    if get_starter_rolls_left(user_id) <= 0:
+        return None, None
+
+    if not use_starter_roll(user_id):
+        return None, None
+
+    bloodline = roll_random_bloodline()
+    if bloodline is None:
+        return None, None
+
+    update_player_bloodline(user_id, bloodline["id"], bloodline["name"])
+    rolls_left = get_starter_rolls_left(user_id)
+    return bloodline, rolls_left
+
+
 def get_loadout_items(player):
     starter_candidates = json.loads(player.get("starter_items", "[]"))
     if starter_candidates:
@@ -403,51 +483,57 @@ def build_create_journey_embed(user_id, display_name):
     if player is None:
         return build_embed("No Character", "You do not have a character yet. Use !create first.", discord.Color.orange())
 
-    trait_rolls_left = player.get("trait_rolls_left", 0)
-    starter_rolls_left = player.get("starter_rolls_left", 0)
-    trait_name = player.get("trait_name") or "Unselected"
-    trait_entry = find_trait_by_name(player.get("trait_name"))
-    if trait_entry:
-        trait_name = trait_entry["name"]
-
-    starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
+    origin_rolls_left = player.get("trait_rolls_left", 0)
+    bloodline_rolls_left = player.get("starter_rolls_left", 0)
+    origin_name = player.get("origin_name") or "Unselected"
+    bloodline_name = player.get("bloodline_name") or "Unselected"
+    origin_entry = find_origin_by_name(origin_name)
+    bloodline_entry = find_bloodline_by_name(bloodline_name)
+    if origin_entry:
+        origin_name = origin_entry["name"]
+    if bloodline_entry:
+        bloodline_name = bloodline_entry["name"]
 
     embed = discord.Embed(
         title="Create Character",
         description=(
-            "Choose a trait, roll starter gear, then save your loadout."
+            "Roll an Origin, roll a Bloodline, then create your cultivator."
         ),
         color=THEME_CRIMSON,
     )
     embed.add_field(name="Cultivator", value=display_name, inline=True)
-    embed.add_field(name="Trait Rolls", value=f"**{trait_rolls_left}** remaining", inline=True)
-    embed.add_field(name="Starter Rolls", value=f"**{starter_rolls_left}** remaining", inline=True)
-    embed.add_field(name="Current Trait", value=trait_name, inline=False)
-    embed.add_field(name="Weapon", value=starter_weapon_name, inline=True)
-    embed.add_field(name="Armor", value=starter_armor_name, inline=True)
-    embed.set_footer(text="Trait -> Starter Gear -> Loadout")
+    embed.add_field(name="Origin Rolls", value=f"**{origin_rolls_left}** remaining", inline=True)
+    embed.add_field(name="Bloodline Rolls", value=f"**{bloodline_rolls_left}** remaining", inline=True)
+    embed.add_field(name="Origin", value=origin_name, inline=False)
+    embed.add_field(name="Bloodline", value=bloodline_name, inline=False)
+    embed.set_footer(text="Origin -> Bloodline -> Create")
     return embed
 
 
 def build_create_trait_panel_embed(display_name, trait, rolls_left):
-    embed = build_trait_roll_embed(
+    status = (
+        "Press Continue to keep this origin and roll your bloodline."
+        if rolls_left <= 0
+        else "This origin is saved. Roll again or press Continue to keep it."
+    )
+    embed = build_origin_roll_embed(
         trait,
         rolls_left,
-        "This trait is saved. Roll again if you want a different one.",
+        status,
     )
-    embed.title = f"Trait - {display_name}"
+    embed.title = f"Origin - {display_name}"
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     return embed
 
 
-def build_create_starter_panel_embed(display_name, item, roll_number, rolls_left):
+def build_create_bloodline_panel_embed(display_name, bloodline, rolls_left):
     status = (
-        "Starter rolls complete. Press Continue to choose your gear."
+        "Press Create to keep this bloodline and awaken your cultivator."
         if rolls_left <= 0
-        else "Keep rolling until all starter rolls are used."
+        else "This bloodline is saved. Roll again or press Create to keep it."
     )
-    embed = build_starter_roll_embed(item, roll_number, rolls_left, status)
-    embed.title = f"Starter Gear - {display_name}"
+    embed = build_bloodline_roll_embed(bloodline, rolls_left, status)
+    embed.title = f"Bloodline - {display_name}"
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     return embed
 
@@ -486,7 +572,8 @@ class CreateJourneyView(discord.ui.View):
         super().__init__(timeout=900)
         self.author_id = author_id
         self.current_trait = None
-        self.mode = "trait"
+        self.current_bloodline = None
+        self.mode = "origin"
         self.current_loadout_items = []
         self.current_starter_finalize = False
         self.selected_weapon_roll = None
@@ -502,11 +589,11 @@ class CreateJourneyView(discord.ui.View):
     def _set_hub_buttons(self):
         self.clear_items()
 
-        roll_trait_btn = discord.ui.Button(label="Trait", style=discord.ButtonStyle.primary)
+        roll_trait_btn = discord.ui.Button(label="Origin", style=discord.ButtonStyle.primary)
         roll_trait_btn.callback = self.roll_trait_button
         self.add_item(roll_trait_btn)
 
-        roll_starter_btn = discord.ui.Button(label="Starter Gear", style=discord.ButtonStyle.primary)
+        roll_starter_btn = discord.ui.Button(label="Bloodline", style=discord.ButtonStyle.primary)
         roll_starter_btn.callback = self.roll_starter_button
         self.add_item(roll_starter_btn)
 
@@ -532,7 +619,7 @@ class CreateJourneyView(discord.ui.View):
         reroll_starter_btn.callback = self.roll_starter_button
         self.add_item(reroll_starter_btn)
 
-        continue_btn = discord.ui.Button(label="Continue", style=discord.ButtonStyle.success)
+        continue_btn = discord.ui.Button(label="Create", style=discord.ButtonStyle.success)
         continue_btn.callback = self.continue_to_loadout_button
         self.add_item(continue_btn)
 
@@ -590,23 +677,23 @@ class CreateJourneyView(discord.ui.View):
 
         if get_trait_rolls_left(user_id) <= 0 or not spend_trait_roll(user_id):
             await interaction.response.send_message(
-                embed=build_embed("No Trait Rolls", "You have no trait rolls left.", discord.Color.orange()),
+                embed=build_embed("No Origin Rolls", "You have no origin rolls left.", discord.Color.orange()),
                 ephemeral=True,
             )
             return
 
-        trait = roll_random_trait()
+        trait = roll_random_origin()
         if trait is None:
             await interaction.response.send_message(
-                embed=build_embed("Trait Roll Failed", "No trait was found for that rarity.", discord.Color.red()),
+                embed=build_embed("Origin Roll Failed", "No origin was found for that rarity.", discord.Color.red()),
                 ephemeral=True,
             )
             return
 
-        update_player_trait(user_id, trait["id"], trait["name"])
+        update_player_origin(user_id, trait["id"], trait["name"])
         PENDING_TRAIT_ROLLS.pop(user_id, None)
         self.current_trait = trait
-        self.mode = "trait"
+        self.mode = "origin"
         self._set_trait_buttons()
         rolls_left = get_trait_rolls_left(user_id)
         embed = build_create_trait_panel_embed(interaction.user.display_name, trait, rolls_left)
@@ -630,19 +717,19 @@ class CreateJourneyView(discord.ui.View):
             )
             return
 
-        if not player.get("trait_name"):
-            await interaction.response.send_message("Roll a trait first.", ephemeral=True)
+        if not (player.get("origin_name") or player.get("trait_name")):
+            await interaction.response.send_message("Roll an origin first.", ephemeral=True)
             return
 
-        item, roll_number, rolls_left = roll_starter_candidate(user_id)
-        self.mode = "starter"
+        bloodline, rolls_left = roll_bloodline_candidate(user_id)
+        self.mode = "bloodline"
         self._set_starter_buttons()
 
-        if item is None:
+        if bloodline is None:
             await interaction.response.edit_message(
                 embed=build_embed(
-                    "Starter Gear Complete",
-                    "Starter rolls are complete. Press Continue to choose 1 weapon and 1 armor.",
+                    "Bloodline Complete",
+                    "Bloodline rolls are complete. Press Create to awaken your cultivator.",
                     discord.Color.orange(),
                 ),
                 attachments=[],
@@ -650,9 +737,12 @@ class CreateJourneyView(discord.ui.View):
             )
             return
 
+        self.current_bloodline = bloodline
+        embed = build_create_bloodline_panel_embed(interaction.user.display_name, bloodline, rolls_left)
+        icon_file = attach_trait_icon(embed, bloodline)
         await interaction.response.edit_message(
-            embed=build_create_starter_panel_embed(interaction.user.display_name, item, roll_number, rolls_left),
-            attachments=[],
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
             view=self,
         )
 
@@ -668,14 +758,14 @@ class CreateJourneyView(discord.ui.View):
             )
             return
 
-        item, roll_number, rolls_left = roll_starter_candidate(user_id)
-        if item is None:
-            self.mode = "starter"
+        bloodline, rolls_left = roll_bloodline_candidate(user_id)
+        if bloodline is None:
+            self.mode = "bloodline"
             self._set_starter_buttons()
             await interaction.response.edit_message(
                 embed=build_embed(
-                    "Starter Gear Complete",
-                    "Starter rolls are complete. Press Continue to choose 1 weapon and 1 armor.",
+                    "Bloodline Complete",
+                    "Bloodline rolls are complete. Press Create to awaken your cultivator.",
                     discord.Color.orange(),
                 ),
                 attachments=[],
@@ -683,24 +773,19 @@ class CreateJourneyView(discord.ui.View):
             )
             return
 
-        self.mode = "starter"
+        self.current_bloodline = bloodline
+        self.mode = "bloodline"
         self._set_starter_buttons()
+        embed = build_create_bloodline_panel_embed(interaction.user.display_name, bloodline, rolls_left)
+        icon_file = attach_trait_icon(embed, bloodline)
         await interaction.response.edit_message(
-            embed=build_create_starter_panel_embed(interaction.user.display_name, item, roll_number, rolls_left),
-            attachments=[],
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
             view=self,
         )
 
     async def continue_to_loadout_button(self, interaction: discord.Interaction):
         if not await self._ensure_owner(interaction):
-            return
-
-        rolls_left = get_starter_rolls_left(str(self.author_id))
-        if rolls_left > 0:
-            await interaction.response.send_message(
-                f"Use your remaining {rolls_left} starter rolls first.",
-                ephemeral=True,
-            )
             return
 
         await self.open_loadout_button(interaction)
@@ -717,33 +802,43 @@ class CreateJourneyView(discord.ui.View):
             )
             return
 
-        rolled_items, starter_finalize = get_loadout_items(player)
-        if not rolled_items:
+        if not (player.get("origin_name") or player.get("trait_name")):
             await interaction.response.send_message(
-                embed=build_embed("Loadout ✨", "You do not have any items to equip yet.", discord.Color.orange()),
+                embed=build_embed("Missing Origin", "Roll an origin before creating your character.", discord.Color.orange()),
                 ephemeral=True,
             )
             return
 
-        starter_weapon_name, starter_armor_name = get_selected_starter_names(player)
+        if not player.get("bloodline_name"):
+            await interaction.response.send_message(
+                embed=build_embed("Missing Bloodline", "Roll a bloodline before creating your character.", discord.Color.orange()),
+                ephemeral=True,
+            )
+            return
 
-        self.mode = "loadout"
-        self.current_loadout_items = rolled_items
-        self.current_starter_finalize = starter_finalize
-        self.selected_weapon_roll = None
-        self.selected_armor_roll = None
-        self._set_loadout_buttons()
+        self.mode = "complete"
+        self.clear_items()
+
+        help_text = (
+            f"Origin: **{player.get('origin_name') or player.get('trait_name')}**\n"
+            f"Bloodline: **{player.get('bloodline_name')}**\n\n"
+            "**Next Steps:**\n"
+            "• `!profile` - See your total stats & rank\n"
+            "• `!origin` - Inspect your Origin\n"
+            "• `!bloodline` - Inspect your Bloodline\n"
+            "• `!gather` / `!hunt` / `!wander` - Get loot & XP\n"
+            "• `!battle` / `!raid` - Combat challenges\n"
+            "• `!level` - Check realm progression"
+        )
 
         await interaction.response.edit_message(
-            embed=build_create_loadout_panel_embed(
-                interaction.user.display_name,
-                rolled_items,
-                starter_finalize,
-                starter_weapon_name,
-                starter_armor_name,
+            embed=build_embed(
+                "Character Awakened",
+                help_text,
+                discord.Color.green(),
             ),
             attachments=[],
-            view=self,
+            view=None,
         )
 
     async def select_weapon_in_panel(self, interaction: discord.Interaction):
@@ -847,19 +942,19 @@ class TraitRollView(discord.ui.View):
         self.author_id = author_id
         self.trait = trait
 
-    @discord.ui.button(label="Lock Trait", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Lock Origin", style=discord.ButtonStyle.success)
     async def lock_trait(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.author_id:
             await interaction.response.send_message("This button is not for your roll.", ephemeral=True)
             return
 
-        update_player_trait(str(self.author_id), self.trait["id"], self.trait["name"])
+        update_player_origin(str(self.author_id), self.trait["id"], self.trait["name"])
         PENDING_TRAIT_ROLLS.pop(str(self.author_id), None)
 
         for child in self.children:
             child.disabled = True
 
-        embed = build_trait_roll_embed(
+        embed = build_origin_roll_embed(
             self.trait,
             get_trait_rolls_left(str(self.author_id)),
             "Locked in successfully.",
@@ -867,7 +962,7 @@ class TraitRollView(discord.ui.View):
         icon_file = attach_trait_icon(embed, self.trait)
 
         await interaction.response.edit_message(
-            content="Trait locked in.",
+            content="Origin locked in.",
             embed=embed,
             attachments=[icon_file] if icon_file else [],
             view=self,
@@ -883,30 +978,77 @@ class TraitRollView(discord.ui.View):
 
         if get_trait_rolls_left(user_id) <= 0:
             await interaction.response.send_message(
-                "You have no trait rolls left. Use Lock Trait to keep your current trait.",
+                "You have no origin rolls left. Use Lock Origin to keep your current origin.",
                 ephemeral=True,
             )
             return
 
         if not spend_trait_roll(user_id):
             await interaction.response.send_message(
-                "You have no trait rolls left. Use Lock Trait to keep your current trait.",
+                "You have no origin rolls left. Use Lock Origin to keep your current origin.",
                 ephemeral=True,
             )
             return
 
-        new_trait = roll_random_trait()
+        new_trait = roll_random_origin()
         if new_trait is None:
-            await interaction.response.send_message("No trait was found for the roll.", ephemeral=True)
+            await interaction.response.send_message("No origin was found for the roll.", ephemeral=True)
             return
 
         self.trait = new_trait
         PENDING_TRAIT_ROLLS[user_id] = new_trait
 
         rolls_left = get_trait_rolls_left(user_id)
-        embed = build_trait_roll_embed(new_trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again.")
+        embed = build_origin_roll_embed(new_trait, rolls_left, "Use Lock Origin to keep this roll, or Roll Again.")
         icon_file = attach_trait_icon(embed, new_trait)
 
+        await interaction.response.edit_message(
+            content=None,
+            embed=embed,
+            attachments=[icon_file] if icon_file else [],
+            view=self,
+        )
+
+
+class BloodlineRollView(discord.ui.View):
+    def __init__(self, author_id):
+        super().__init__(timeout=300)
+        self.author_id = author_id
+
+    @discord.ui.button(label="Roll Again", style=discord.ButtonStyle.primary)
+    async def roll_again_bloodline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("This button is not for you.", ephemeral=True)
+            return
+
+        user_id = str(self.author_id)
+        bloodline, rolls_left = roll_bloodline_candidate(user_id)
+        if bloodline is None:
+            for child in self.children:
+                child.disabled = True
+            await interaction.response.edit_message(
+                embed=build_embed(
+                    "Bloodline Rolls Complete",
+                    "No bloodline rolls left. Use !bloodline to inspect your inheritance.",
+                    discord.Color.orange(),
+                ),
+                attachments=[],
+                view=self,
+            )
+            return
+
+        if rolls_left <= 0:
+            for child in self.children:
+                child.disabled = True
+
+        embed = build_bloodline_roll_embed(
+            bloodline,
+            rolls_left,
+            "All 10 rolls complete. Use !bloodline to inspect your inheritance."
+            if rolls_left <= 0
+            else "Press Roll Again to keep rolling.",
+        )
+        icon_file = attach_trait_icon(embed, bloodline)
         await interaction.response.edit_message(
             content=None,
             embed=embed,
@@ -1150,8 +1292,9 @@ async def help_command(ctx):
         color=THEME_CRIMSON,
     )
     embed.add_field(name="Core", value="!ping\n!help\n!create\n!profile\n!use\n!reset", inline=True)
-    embed.add_field(name="Traits", value="!rolltrait\n!trait\n!traithelp", inline=True)
-    embed.add_field(name="Gear", value="!rollstarter\n!loadout\n!inv\n!choosestarter <w> <a>", inline=True)
+    embed.add_field(name="Origins", value="!origin\n!originhelp", inline=True)
+    embed.add_field(name="Bloodlines", value="!bloodline\n!bloodlinehelp", inline=True)
+    embed.add_field(name="Gear", value="!loadout\n!inv", inline=True)
     embed.add_field(name="Cultivation", value="!advance\n!level", inline=True)
     embed.add_field(name="Combat", value="!battle\n!raid", inline=True)
     embed.add_field(name="Economy", value="!gather\n!hunt\n!wander\n!balance\n!deposit\n!withdraw", inline=True)
@@ -1174,15 +1317,15 @@ async def create_character(ctx):
         return
 
     if not spend_trait_roll(user_id):
-        await ctx.send(embed=build_embed("Create Failed", "Could not start your first trait roll. Please try again.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Create Failed", "Could not start your first origin roll. Please try again.", discord.Color.red()))
         return
 
-    trait = roll_random_trait()
+    trait = roll_random_origin()
     if trait is None:
-        await ctx.send(embed=build_embed("Trait Roll Failed", "No trait was found for that rarity.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Origin Roll Failed", "No origin was found for that rarity.", discord.Color.red()))
         return
 
-    update_player_trait(user_id, trait["id"], trait["name"])
+    update_player_origin(user_id, trait["id"], trait["name"])
     rolls_left = get_trait_rolls_left(user_id)
     view = CreateJourneyView(ctx.author.id)
     view.current_trait = trait
@@ -1196,7 +1339,7 @@ async def create_character(ctx):
     )
 
 
-@bot.command(name="rolltrait")
+@bot.command(name="rollorigin", aliases=["rollorgin", "rollogrin", "rolltrait"])
 async def roll_trait(ctx):
     user_id = str(ctx.author.id)
 
@@ -1205,21 +1348,21 @@ async def roll_trait(ctx):
         return
 
     if get_trait_rolls_left(user_id) <= 0:
-        await ctx.send(embed=build_embed("No Trait Rolls", "You have no trait rolls left.", discord.Color.orange()))
+        await ctx.send(embed=build_embed("No Origin Rolls", "You have no origin rolls left.", discord.Color.orange()))
         return
 
     if not spend_trait_roll(user_id):
-        await ctx.send(embed=build_embed("No Trait Rolls", "You have no trait rolls left.", discord.Color.orange()))
+        await ctx.send(embed=build_embed("No Origin Rolls", "You have no origin rolls left.", discord.Color.orange()))
         return
 
-    trait = roll_random_trait()
+    trait = roll_random_origin()
     if trait is None:
-        await ctx.send(embed=build_embed("Trait Roll Failed", "No trait was found for that rarity.", discord.Color.red()))
+        await ctx.send(embed=build_embed("Origin Roll Failed", "No origin was found for that rarity.", discord.Color.red()))
         return
 
     PENDING_TRAIT_ROLLS[user_id] = trait
     rolls_left = get_trait_rolls_left(user_id)
-    embed = build_trait_roll_embed(trait, rolls_left, "Use Lock Trait to keep this roll, or Roll Again.")
+    embed = build_origin_roll_embed(trait, rolls_left, "Use Lock Origin to keep this roll, or Roll Again.")
     icon_file = attach_trait_icon(embed, trait)
 
     await ctx.send(
@@ -1247,7 +1390,7 @@ async def reset_roll(ctx):
     )
 
 
-@bot.command(name="rollstarter")
+@bot.command(name="rollbloodline", aliases=["rollstarter"])
 async def roll_starter(ctx):
     user_id = str(ctx.author.id)
 
@@ -1255,28 +1398,29 @@ async def roll_starter(ctx):
         await ctx.send(embed=build_embed("No Character", "You do not have a character yet. Use !create first.", discord.Color.orange()))
         return
 
-    item, roll_number, rolls_left = roll_starter_candidate(user_id)
-    if item is None:
+    bloodline, rolls_left = roll_bloodline_candidate(user_id)
+    if bloodline is None:
         await ctx.send(
             embed=build_embed(
-                "Starter Rolls Complete ✨",
-                "You have no starter rolls left. Use !loadout to finalize 1 weapon and 1 armor.",
+                "Bloodline Rolls Complete",
+                "You have no bloodline rolls left. Use !bloodline to inspect your inheritance.",
                 discord.Color.orange(),
             )
         )
         return
 
-    await ctx.send(
-        embed=build_starter_roll_embed(
-            item,
-            roll_number,
-            rolls_left,
-            "All 10 rolls complete. Use !loadout to finalize 1 weapon + 1 armor."
-            if rolls_left <= 0
-            else "Press Roll Again to continue.",
-        ),
-        view=StarterRollView(ctx.author.id),
+    embed = build_bloodline_roll_embed(
+        bloodline,
+        rolls_left,
+        "All 10 rolls complete. Use !bloodline to inspect your inheritance."
+        if rolls_left <= 0
+        else "Press Roll Again to continue.",
     )
+    icon_file = attach_trait_icon(embed, bloodline)
+    if icon_file:
+        await ctx.send(embed=embed, file=icon_file, view=BloodlineRollView(ctx.author.id))
+    else:
+        await ctx.send(embed=embed, view=BloodlineRollView(ctx.author.id))
 
 
 @bot.command(name="loadout")
@@ -1509,15 +1653,18 @@ async def player_profile(ctx):
     equipped_weapon = game_data["equipped_weapon"]
     equipped_armor = game_data["equipped_armor"]
     
-    trait_bonuses, trait_entry = get_player_trait_bonuses(player)
+    trait_bonuses, origin_entry, bloodline_entry = get_player_trait_bonuses(player)
 
     total_stats = calculate_total_stats(base_stats, equipped_weapon, equipped_armor, trait_bonuses)
     rank_display, rank_letter = calculate_rank_from_stats(total_stats)
 
     realm_display = get_realm_display(player["realm"], player["realm_stage"])
-    trait_display = player["trait_name"] or "None"
-    if trait_entry:
-        trait_display = f"{trait_entry['name']} ({trait_entry['rarity']})"
+    origin_display = player.get("origin_name") or player.get("trait_name") or "None"
+    bloodline_display = player.get("bloodline_name") or "None"
+    if origin_entry:
+        origin_display = f"{origin_entry['name']} ({origin_entry['rarity']})"
+    if bloodline_entry:
+        bloodline_display = f"{bloodline_entry['name']} ({bloodline_entry['rarity']})"
 
     # Build profile embed with user avatar
     embed = discord.Embed(
@@ -1528,7 +1675,7 @@ async def player_profile(ctx):
     
     avatar_url = ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
     embed.set_author(name=ctx.author.display_name, icon_url=avatar_url)
-    trait_icon_file = attach_trait_icon(embed, trait_entry, image=False) if trait_entry else None
+    trait_icon_file = attach_trait_icon(embed, origin_entry, image=False) if origin_entry else None
     if not trait_icon_file:
         embed.set_thumbnail(url=avatar_url)
     
@@ -1591,9 +1738,11 @@ async def player_profile(ctx):
 
     embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-    embed.add_field(name="Trait", value=trait_display, inline=False)
+    embed.add_field(name="Origin", value=origin_display, inline=True)
+    embed.add_field(name="Bloodline", value=bloodline_display, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
 
-    embed.set_footer(text="!inv  |  !loadout  |  !cd")
+    embed.set_footer(text="!origin  |  !bloodline  |  !inv  |  !cd")
     if trait_icon_file:
         await ctx.send(embed=embed, file=trait_icon_file)
     else:
@@ -2026,7 +2175,7 @@ async def combat_battle(ctx):
     # Get player stats
     game_data = get_player_game_data(user_id)
     player = get_player(user_id)
-    trait_bonuses, _ = get_player_trait_bonuses(player)
+    trait_bonuses, _, _ = get_player_trait_bonuses(player)
     player_stats = calculate_total_stats(
         game_data["base_stats"],
         game_data["equipped_weapon"],
@@ -2072,7 +2221,7 @@ async def combat_raid(ctx):
     # Get player stats
     game_data = get_player_game_data(user_id)
     player = get_player(user_id)
-    trait_bonuses, _ = get_player_trait_bonuses(player)
+    trait_bonuses, _, _ = get_player_trait_bonuses(player)
     player_stats = calculate_total_stats(
         game_data["base_stats"],
         game_data["equipped_weapon"],
@@ -2176,16 +2325,43 @@ def format_trait_bonuses_detailed(trait):
         elif isinstance(value, (int, float)):
             label = get_trait_bonus_label(key)
             if key.endswith("_percent"):
-                bonus_text += f"• {label} +**{value}%**\n"
+                bonus_text += f"• {label} **{value:+}%**\n"
             else:
-                bonus_text += f"• {label} +**{value}**\n"
+                bonus_text += f"• {label} **{value:+}**\n"
     
     return bonus_text if bonus_text else "No bonuses"
 
 
-@bot.command(name="trait")
-async def show_trait(ctx):
-    """Show detailed information about your current trait."""
+async def show_path_entry(ctx, entry, entry_type):
+    rarity = entry.get("rarity", "Unknown")
+    description = entry.get("description", "No description available.")
+    power_rating = get_trait_power_rating(rarity)
+    rarity_tier = get_trait_rarity_tier(rarity)
+    bonus_text = format_trait_bonuses_detailed(entry)
+
+    embed = discord.Embed(
+        title=f"{entry['name']} - {rarity} {entry_type}",
+        description=description,
+        color=discord.Color.gold() if rarity_tier >= 6 else discord.Color.blue(),
+    )
+    icon_file = attach_trait_icon(embed, entry)
+
+    embed.add_field(name="Rarity Tier", value=f"{rarity_tier}/9", inline=True)
+    embed.add_field(name="Power Rating", value=power_rating, inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.add_field(name="Effects", value=bonus_text.strip(), inline=False)
+    embed.add_field(name="Role", value="Major active growth/combat identity with tradeoffs." if entry_type == "Origin" else "Subtle long-term scaling with no downside.", inline=False)
+    embed.set_footer(text=f"{entry_type} ID: {entry.get('id', 'unknown')}")
+
+    if icon_file:
+        await ctx.send(embed=embed, file=icon_file)
+    else:
+        await ctx.send(embed=embed)
+
+
+@bot.command(name="origin", aliases=["orgin", "ogrin", "origininfo", "orgininfo", "ogrininfo", "trait", "traitinfo"])
+async def show_origin(ctx):
+    """Show detailed information about your current Origin."""
     user_id = str(ctx.author.id)
     player = get_player(user_id)
 
@@ -2199,92 +2375,82 @@ async def show_trait(ctx):
         )
         return
 
-    trait_name = player.get("trait_name")
-    if not trait_name:
+    origin_name = player.get("origin_name") or player.get("trait_name")
+    if not origin_name:
         await ctx.send(
             embed=build_embed(
-                "No Trait Selected",
-                "You haven't selected a trait yet. Use !rolltrait to get started.",
+                "No Origin Selected",
+                "You haven't selected an origin yet. Use !create to begin.",
                 discord.Color.orange(),
             )
         )
         return
 
-    # Find trait in pool
-    trait = None
-    for t in get_trait_pool():
-        if t.get("name") == trait_name:
-            trait = t
-            break
-
-    if not trait:
+    origin = find_origin_by_name(origin_name)
+    if not origin:
         await ctx.send(
             embed=build_embed(
-                "Trait Not Found",
-                f"Could not find trait '{trait_name}'.",
+                "Origin Not Found",
+                f"Could not find origin '{origin_name}'.",
                 discord.Color.red(),
             )
         )
         return
 
-    # Format trait information
-    rarity = trait.get("rarity", "Unknown")
-    description = trait.get("description", "No description available.")
-    power_rating = get_trait_power_rating(rarity)
-    rarity_tier = get_trait_rarity_tier(rarity)
-    bonus_text = format_trait_bonuses_detailed(trait)
-
-    # Build embed
-    embed = discord.Embed(
-        title=f"{trait_name} - {rarity} Trait",
-        description=description,
-        color=discord.Color.gold() if rarity_tier >= 6 else discord.Color.blue(),
-    )
-    icon_file = attach_trait_icon(embed, trait)
-
-    embed.add_field(name="Rarity Tier", value=f"{rarity_tier}/9", inline=True)
-    embed.add_field(name="Power Rating", value=power_rating, inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-    embed.add_field(name="Bonuses", value=bonus_text.strip(), inline=False)
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    # Trait value assessment
-    if rarity == "Empyrean":
-        assessment = "🌌 **EMPYREAN** — Apex-tier trait with rare, controlled authority."
-    elif rarity in ("Godworthy", "Celestial"):
-        assessment = "🔥 **EXCEPTIONAL** — Elite-tier trait with immense power."
-    elif rarity in ("Legendary", "Amazing"):
-        assessment = "⚡ **EXCELLENT** — A powerful trait with strong advantages."
-    elif rarity in ("Great",):
-        assessment = "✨ **VERY GOOD** — A solid trait with notable benefits."
-    elif rarity in ("Normal",):
-        assessment = "👍 **DECENT** — A respectable trait for your journey."
-    elif rarity in ("Uncommon",):
-        assessment = "😐 **MODEST** — Basic benefits to aid cultivation."
-    else:
-        assessment = "🤷 **BASIC** — A humble start, but every path begins somewhere."
-
-    embed.add_field(name="Assessment", value=assessment, inline=False)
-    embed.set_footer(text=f"Trait ID: {trait.get('id', 'unknown')}")
-
-    if icon_file:
-        await ctx.send(embed=embed, file=icon_file)
-    else:
-        await ctx.send(embed=embed)
+    await show_path_entry(ctx, origin, "Origin")
 
 
-@bot.command(name="traithelp")
-async def trait_help(ctx):
-    """Explain trait rarity order and roll odds."""
+@bot.command(name="bloodline", aliases=["bloodlineinfo"])
+async def show_bloodline(ctx):
+    """Show detailed information about your current Bloodline."""
+    user_id = str(ctx.author.id)
+    player = get_player(user_id)
+
+    if player is None:
+        await ctx.send(
+            embed=build_embed(
+                "No Character",
+                "You do not have a character yet. Use !create first.",
+                discord.Color.orange(),
+            )
+        )
+        return
+
+    bloodline_name = player.get("bloodline_name")
+    if not bloodline_name:
+        await ctx.send(
+            embed=build_embed(
+                "No Bloodline Selected",
+                "You haven't selected a bloodline yet. Use !create to begin.",
+                discord.Color.orange(),
+            )
+        )
+        return
+
+    bloodline = find_bloodline_by_name(bloodline_name)
+    if not bloodline:
+        await ctx.send(
+            embed=build_embed(
+                "Bloodline Not Found",
+                f"Could not find bloodline '{bloodline_name}'.",
+                discord.Color.red(),
+            )
+        )
+        return
+
+    await show_path_entry(ctx, bloodline, "Bloodline")
+
+
+def build_rarity_help_embed(title, entry_type, pool_getter):
     rarity_order = [
-        ("Common", "Tier 1", "Basic starter blessings"),
-        ("Uncommon", "Tier 2", "Slightly better early growth"),
-        ("Normal", "Tier 3", "Solid usable trait"),
-        ("Great", "Tier 4", "Strong and noticeable"),
-        ("Amazing", "Tier 5", "Rare, multi-stat power"),
-        ("Legendary", "Tier 6", "High-end combat/cultivation trait"),
-        ("Celestial", "Tier 7", "Elite-tier fate bending"),
-        ("Godworthy", "Tier 8", "Extremely rare apex-adjacent trait"),
+        ("Common", "Tier 1", "Most likely"),
+        ("Uncommon", "Tier 2", "Slightly rarer"),
+        ("Normal", "Tier 3", "Solid pull"),
+        ("Great", "Tier 4", "Strong pull"),
+        ("Amazing", "Tier 5", "Rare multi-stat pull"),
+        ("Legendary", "Tier 6", "High-end path"),
+        ("Celestial", "Tier 7", "Elite fate-bending path"),
+        ("Godworthy", "Tier 8", "Extremely rare apex-adjacent path"),
         ("Empyrean", "Tier 9", "Highest rarity, almost never seen"),
     ]
 
@@ -2293,20 +2459,37 @@ async def trait_help(ctx):
     for rarity, tier, note in rarity_order:
         weight = RARITY_WEIGHTS.get(rarity, 0)
         chance = (weight / total_weight) * 100 if total_weight else 0
-        lines.append(f"**{tier} - {rarity}**: {chance:.3f}%\n- {note}")
+        count = len(pool_getter(rarity))
+        lines.append(f"**{tier} - {rarity}**: {chance:.3f}% ({count} {entry_type}s)\n- {note}")
 
     embed = discord.Embed(
-        title="Trait Rarity Guide",
+        title=title,
         description="From most common to rarest:",
         color=THEME_GOLD,
     )
     embed.add_field(name="Rarity Order", value="\n\n".join(lines), inline=False)
     embed.add_field(
-        name="Apex Note",
-        value="Empyrean is above Godworthy. It has very strong buffs, but combat caps still keep it from fully breaking the game.",
+        name="Roll Rules",
+        value="Same rarity chances as before. You get 10 rolls during !create.",
         inline=False,
     )
-    embed.set_footer(text="Use !rolltrait or !create to roll traits")
+    embed.set_footer(text="Use !create to roll your path")
+    return embed
+
+
+@bot.command(name="originhelp", aliases=["orginhelp", "ogrinhelp", "traithelp"])
+async def origin_help(ctx):
+    """Explain Origin rarity order and roll odds."""
+    embed = build_rarity_help_embed("Origin Rarity Guide", "Origin", get_origins_by_rarity)
+    embed.add_field(name="Origin Role", value="Origins are major always-active paths with big stat impact and tradeoffs.", inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="bloodlinehelp")
+async def bloodline_help(ctx):
+    """Explain Bloodline rarity order and roll odds."""
+    embed = build_rarity_help_embed("Bloodline Rarity Guide", "Bloodline", get_bloodlines_by_rarity)
+    embed.add_field(name="Bloodline Role", value="Bloodlines are subtle long-term passives with no downside, focused on growth, luck, and scaling.", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -2331,7 +2514,7 @@ async def use_menu(ctx):
         await ctx.send(embed=build_embed("Data Error", "Could not load your game data.", discord.Color.red()))
         return
 
-    trait_bonuses, _ = get_player_trait_bonuses(player)
+    trait_bonuses, _, _ = get_player_trait_bonuses(player)
     total_stats = calculate_total_stats(
         game_data["base_stats"],
         game_data["equipped_weapon"],
