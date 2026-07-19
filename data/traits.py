@@ -466,8 +466,59 @@ def _make_bloodline_pool(traits):
     return bloodlines
 
 
-ORIGINS = _make_origin_pool(TRAITS)
-BLOODLINES = _make_bloodline_pool(TRAITS)
+APEX_ORIGIN = {
+    "id": "origin_apex_primordial_human",
+    "name": "Primordial Human Origin",
+    "rarity": "Empyrean",
+    "description": "The first human template refined past sanctuary law. It turns pressure, fear, and mutation into command.",
+    "bonuses": {
+        "attack_percent": 60,
+        "defense_percent": 45,
+        "hp_percent": 40,
+        "qi_gain_percent": 42,
+        "luck_percent": 34,
+        "critical_chance_percent": 20,
+        "dodge_chance_percent": 16,
+        "loot_luck_percent": 24,
+        "sequence_authority_percent": 30,
+        "fate_anchor_percent": 28,
+        "damage_reduction_percent": 18,
+        "lifesteal_percent": 16,
+        "counter_chance_percent": 16,
+        "madness_resistance_percent": 35,
+        "breakthrough_reward_bonus_percent": 30,
+        "unique_evolution_path": True,
+        "special_mechanic": True,
+    },
+    "kind": "Origin",
+    "icon_path": "assets/traits/icons/tier_9_01.png",
+}
+
+APEX_BLOODLINE = {
+    "id": "bloodline_apex_super_gene_progenitor",
+    "name": "Super Gene Progenitor Bloodline",
+    "rarity": "Empyrean",
+    "description": "A progenitor current that treats every evolution as inheritance. Each opened gene lock pushes the body closer to a perfected species.",
+    "bonuses": {
+        "qi_gain_percent": 40,
+        "luck_percent": 32,
+        "loot_luck_percent": 30,
+        "attack_percent": 24,
+        "defense_percent": 24,
+        "hp_percent": 26,
+        "critical_chance_percent": 12,
+        "dodge_chance_percent": 10,
+        "fate_anchor_percent": 22,
+        "breakthrough_reward_bonus_percent": 28,
+        "unique_evolution_path": True,
+    },
+    "kind": "Bloodline",
+    "icon_path": "assets/traits/icons/tier_9_02.png",
+}
+
+
+ORIGINS = [APEX_ORIGIN, *_make_origin_pool(TRAITS)]
+BLOODLINES = [APEX_BLOODLINE, *_make_bloodline_pool(TRAITS)]
 
 RARITY_WEIGHTS = {
     "Common": 45,

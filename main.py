@@ -27,6 +27,8 @@ from game_db_functions import (
     set_xp,
     get_cooldowns,
     update_cooldowns,
+    get_base_stats,
+    set_base_stats,
 )
 from database import (
     add_starter_item,
@@ -126,9 +128,56 @@ THEME_GOLD = discord.Color.from_rgb(218, 165, 32)  # Dark gold
 THEME_CRIMSON = discord.Color.from_rgb(139, 35, 69)  # Crimson red
 THEME_BRONZE = discord.Color.from_rgb(165, 130, 50)  # Bronze
 
+COOLDOWN_LABELS = {
+    "gather": "Gene Glean",
+    "hunt": "Beast Stalk",
+    "wander": "Riftwalk",
+    "battle": "Ego Clash",
+    "raid": "Calamity Raid",
+}
+
+COOLDOWN_COMMANDS = {
+    "gather": "!glean",
+    "hunt": "!stalk",
+    "wander": "!riftwalk",
+    "battle": "!battle",
+    "raid": "!raid",
+}
+
+BLOODLINE_ADVANCE_GROWTH = {
+    "Common": 3,
+    "Uncommon": 5,
+    "Normal": 7,
+    "Great": 10,
+    "Amazing": 14,
+    "Legendary": 18,
+    "Celestial": 22,
+    "Godworthy": 28,
+    "Empyrean": 35,
+}
+
 
 def gear_label(item_type):
     return "Ego" if item_type == "weapon" else "Armor" if item_type == "armor" else "Item"
+
+
+def cooldown_label(command_key):
+    return COOLDOWN_LABELS.get(command_key, command_key.title())
+
+
+def cooldown_command(command_key):
+    return COOLDOWN_COMMANDS.get(command_key, f"!{command_key}")
+
+
+def get_bloodline_advance_growth_percent(bloodline_entry):
+    if not bloodline_entry:
+        return 0
+    return BLOODLINE_ADVANCE_GROWTH.get(bloodline_entry.get("rarity"), 0)
+
+
+def format_bloodline_advance_growth(bloodline_entry):
+    growth_percent = get_bloodline_advance_growth_percent(bloodline_entry)
+    return f"**+{growth_percent}%** permanent base stat scaling on successful `!advance`."
 
 
 def is_ego_item(item):
@@ -365,6 +414,31 @@ def get_player_trait_bonuses(player):
             else:
                 combined[key] = value
     return combined, origin_entry, bloodline_entry
+
+
+def apply_bloodline_advance_growth(user_id, bloodline_entry):
+    growth_percent = get_bloodline_advance_growth_percent(bloodline_entry)
+    if growth_percent <= 0:
+        return 0, {}, {}
+
+    base_stats = get_base_stats(user_id)
+    if not base_stats:
+        return growth_percent, {}, {}
+
+    scaled_stats = dict(base_stats)
+    stat_gains = {}
+    for stat in ("damage", "defense", "luck", "speed", "armor", "hp"):
+        old_value = int(base_stats.get(stat, 0))
+        if old_value <= 0:
+            continue
+        new_value = max(old_value + 1, int(round(old_value * (1 + growth_percent / 100))))
+        scaled_stats[stat] = new_value
+        stat_gains[stat] = new_value - old_value
+
+    if stat_gains:
+        set_base_stats(user_id, scaled_stats)
+
+    return growth_percent, scaled_stats, stat_gains
 
 
 def roll_random_trait():
@@ -883,7 +957,7 @@ class CreateJourneyView(discord.ui.View):
             "• `!profile` - See your total stats & rank\n"
             "• `!origin` - Inspect your Origin\n"
             "• `!bloodline` - Inspect your Bloodline\n"
-            "• `!gather` / `!hunt` / `!wander` - Get loot & Gene Essence\n"
+            "• `!glean` / `!stalk` / `!riftwalk` - Get loot & Gene Essence\n"
             "• `!battle` / `!raid` - Combat challenges\n"
             "• `!level` - Check gene progression"
         )
@@ -963,7 +1037,7 @@ class CreateJourneyView(discord.ui.View):
             "• `!profile` - See your total stats & rank\n"
             "• `!cd` - Check action cooldowns\n"
             "• `!inv` - View inventory & swap gear\n"
-            "• `!gather` / `!hunt` / `!wander` - Get loot & Gene Essence\n"
+            "• `!glean` / `!stalk` / `!riftwalk` - Get loot & Gene Essence\n"
             "• `!battle` / `!raid` - Combat challenges\n"
             "• `!level` - Check gene progression"
         )
@@ -1354,7 +1428,7 @@ async def help_command(ctx):
     embed.add_field(name="Gear", value="!loadout\n!inv", inline=True)
     embed.add_field(name="Evolution", value="!advance\n!level\n!realm", inline=True)
     embed.add_field(name="Combat", value="!battle\n!raid", inline=True)
-    embed.add_field(name="Economy", value="!gather\n!hunt\n!wander\n!balance\n!deposit\n!withdraw", inline=True)
+    embed.add_field(name="Economy", value="!glean\n!stalk\n!riftwalk\n!balance\n!deposit\n!withdraw", inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.set_footer(text="Use !create first before any other command.")
     await ctx.send(embed=embed)
@@ -1528,7 +1602,7 @@ async def inventory_view(ctx):
         await ctx.send(
             embed=build_embed(
                 "Spiritual Armory Empty",
-                "No Egos or armor yet. Egos can rarely manifest through !gather, !hunt, !wander, !battle, and !raid.",
+                "No Egos or armor yet. Egos can rarely manifest through !glean, !stalk, !riftwalk, !battle, and !raid.",
                 discord.Color.orange(),
             )
         )
@@ -1624,6 +1698,8 @@ async def advance(ctx):
 
     success = random.randint(1, 100) <= chance
     if success:
+        _, _, bloodline_entry = get_player_trait_bonuses(player)
+        growth_percent, _, stat_gains = apply_bloodline_advance_growth(str(ctx.author.id), bloodline_entry)
         if stage >= 9:
             realm_name = get_next_realm(realm_name)
             next_stage = 1
@@ -1634,7 +1710,12 @@ async def advance(ctx):
                 next_stage = 1
 
         update_player_realm(str(ctx.author.id), realm_name, next_stage)
-        await ctx.send(embed=build_embed("Gene Lock Opened", f"Evolution: **{get_realm_display(realm_name, next_stage)}**\nAdaptation: **{bonus}**", discord.Color.green()))
+        growth_text = ""
+        if growth_percent and stat_gains:
+            gain_text = ", ".join(f"{stat.upper()} +{gain}" for stat, gain in stat_gains.items())
+            bloodline_name = bloodline_entry.get("name", "Bloodline") if bloodline_entry else "Bloodline"
+            growth_text = f"\nBloodline Growth: **{bloodline_name}** scaled base stats by **{growth_percent}%**\n{gain_text}"
+        await ctx.send(embed=build_embed("Gene Lock Opened", f"Evolution: **{get_realm_display(realm_name, next_stage)}**\nAdaptation: **{bonus}**{growth_text}", discord.Color.green()))
     else:
         await ctx.send(embed=build_embed("Evolution Failed", f"You spent **{requirement} Qi**.\nEvolution chance: **{chance}%**", discord.Color.red()))
 
@@ -1669,6 +1750,7 @@ from game_db_functions import (
     get_xp as db_get_xp,
     set_xp,
     get_base_stats,
+    set_base_stats,
     add_wallet_currency,
     get_wallet,
     get_bank_balance,
@@ -1788,6 +1870,8 @@ def build_profile_path_detail(member, ctx_data, entry_key, label):
     embed.add_field(name=label, value=f"`{entry['name']}` - `{entry['rarity']}`", inline=False)
     embed.add_field(name="Lore", value=entry.get("description", "No description available."), inline=False)
     embed.add_field(name="Stats", value=format_trait_bonuses_detailed(entry), inline=False)
+    if label == "Bloodline":
+        embed.add_field(name="Advance Growth", value=format_bloodline_advance_growth(entry), inline=False)
     embed.add_field(
         name="Role",
         value="Major active growth/combat identity with tradeoffs." if label == "Origin" else "Subtle long-term scaling with no downside.",
@@ -1982,9 +2066,9 @@ async def player_profile(ctx):
         await ctx.send(embed=embed, view=view)
 
 
-@bot.command(name="gather")
+@bot.command(name="glean", aliases=["gather", "scavenge"])
 async def gather_loot(ctx):
-    """Gather resources and loot. High chance of low-tier items."""
+    """Glean gene residue from sanctuary scraps."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -2004,7 +2088,7 @@ async def gather_loot(ctx):
         await ctx.send(
             embed=build_embed(
                 "On Cooldown",
-                f"You can gather again in **{int(remaining)}** seconds.",
+                f"You can {cooldown_label('gather')} again in **{int(remaining)}** seconds.",
                 discord.Color.orange(),
             )
         )
@@ -2034,18 +2118,18 @@ async def gather_loot(ctx):
     loot_section = f"\n\nResources Absorbed:\n{loot_text}" if loot_text else ""
     level_up_msg = f"\n**Gene Lock Opened!** Now at lock {new_realm}." if leveled_up else ""
     
-    embed = discord.Embed(title="Sanctuary Scavenge Complete", color=THEME_GOLD)
+    embed = discord.Embed(title="Gene Glean Complete", color=THEME_GOLD)
     embed.add_field(name="Gene Essence", value=f"**+{xp_earned}**", inline=True)
     embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
     if level_up_msg:
         embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
-    embed.set_footer(text="!gather again in 30s")
+    embed.set_footer(text=f"{cooldown_command('gather')} again in 30s")
     await ctx.send(embed=embed)
 
 
-@bot.command(name="hunt")
+@bot.command(name="stalk", aliases=["hunt"])
 async def hunt_loot(ctx):
-    """Hunt creatures for stronger gene essence rewards."""
+    """Stalk beasts for stronger gene essence rewards."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -2065,7 +2149,7 @@ async def hunt_loot(ctx):
         await ctx.send(
             embed=build_embed(
                 "On Cooldown",
-                f"You can hunt again in **{int(remaining)}** seconds.",
+                f"You can {cooldown_label('hunt')} again in **{int(remaining)}** seconds.",
                 discord.Color.orange(),
             )
         )
@@ -2094,18 +2178,18 @@ async def hunt_loot(ctx):
     loot_text = "\n".join([f"• {item['rank']} {item['type'].title()}: **{item['id']}**" for item in loot_items])
     level_up_msg = f"\n**Gene Lock Opened!** Now at lock {new_realm}." if leveled_up else ""
     
-    embed = discord.Embed(title="Creature Hunt Complete", color=THEME_GOLD)
+    embed = discord.Embed(title="Beast Stalk Complete", color=THEME_GOLD)
     embed.add_field(name="Gene Essence", value=f"**+{xp_earned}**", inline=True)
     embed.add_field(name="🪙 Spirit Coins", value=f"**+{currency_earned}**", inline=True)
     if level_up_msg:
         embed.add_field(name="\u200b", value=level_up_msg.strip(), inline=False)
-    embed.set_footer(text="!hunt again in 60s")
+    embed.set_footer(text=f"{cooldown_command('hunt')} again in 60s")
     await ctx.send(embed=embed)
 
 
-@bot.command(name="wander")
+@bot.command(name="riftwalk", aliases=["wander", "ruins"])
 async def wander_loot(ctx):
-    """Explore sanctuary ruins for essence and rare finds."""
+    """Riftwalk through sanctuary ruins for essence and rare finds."""
     user_id = str(ctx.author.id)
 
     if not player_exists(user_id):
@@ -2125,7 +2209,7 @@ async def wander_loot(ctx):
         await ctx.send(
             embed=build_embed(
                 "On Cooldown",
-                f"You can wander again in **{int(remaining)}** seconds.",
+                f"You can {cooldown_label('wander')} again in **{int(remaining)}** seconds.",
                 discord.Color.orange(),
             )
         )
@@ -2156,7 +2240,7 @@ async def wander_loot(ctx):
     
     await ctx.send(
         embed=build_embed(
-            "Sanctuary Ruins Traversed",
+            "Riftwalk Complete",
             f"**+{xp_earned} Gene Essence** | **+{currency_earned}** Spirit Coins\n\nFinds:\n{loot_text or 'No relics found.'}{level_up_msg}",
             THEME_GOLD,
         )
@@ -2486,21 +2570,21 @@ async def show_cooldowns(ctx):
         if cmd in cooldowns:
             remaining = cooldowns[cmd] - current_time
             if remaining > 0:
-                cooldown_info.append(f"**{cmd.title()}**: {int(remaining)}s")
+                cooldown_info.append(f"**{cooldown_label(cmd)}** `{cooldown_command(cmd)}`: {int(remaining)}s")
             else:
-                cooldown_info.append(f"**{cmd.title()}**: Ready")
+                cooldown_info.append(f"**{cooldown_label(cmd)}** `{cooldown_command(cmd)}`: Ready")
         else:
-            cooldown_info.append(f"**{cmd.title()}**: Ready")
+            cooldown_info.append(f"**{cooldown_label(cmd)}** `{cooldown_command(cmd)}`: Ready")
     
     ready = [c for c in cooldown_info if "Ready" in c]
     waiting = [c for c in cooldown_info if "Ready" not in c]
 
-    embed = discord.Embed(title="Cultivation Cooldowns", color=THEME_DARK)
+    embed = discord.Embed(title="Sanctuary Timers", color=THEME_DARK)
     if ready:
         embed.add_field(name="Ready", value="\n".join(ready), inline=True)
     if waiting:
         embed.add_field(name="Cooling Down", value="\n".join(waiting), inline=True)
-    embed.set_footer(text="Spiritual energy recovers when timers reach zero")
+    embed.set_footer(text="Gene routes reopen when timers reach zero")
     await ctx.send(embed=embed)
 
 
@@ -2577,6 +2661,8 @@ async def show_path_entry(ctx, entry, entry_type):
     embed.add_field(name="Power Rating", value=power_rating, inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="Effects", value=bonus_text.strip(), inline=False)
+    if entry_type == "Bloodline":
+        embed.add_field(name="Advance Growth", value=format_bloodline_advance_growth(entry), inline=False)
     embed.add_field(name="Role", value="Major active growth/combat identity with tradeoffs." if entry_type == "Origin" else "Subtle long-term scaling with no downside.", inline=False)
     embed.set_footer(text=f"{entry_type} ID: {entry.get('id', 'unknown')}")
 
